@@ -1,0 +1,17 @@
+target_default: 4_pb_model
+
+packages:
+  - sf
+  - yaml
+  - dplyr
+  - scipiper
+
+sources:
+
+targets:
+  4_pb_model:
+    depends:
+
+# create ensemble of PRMS-SNTemp runs with varying drivers and parameters
+
+

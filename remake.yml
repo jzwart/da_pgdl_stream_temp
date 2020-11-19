@@ -1,0 +1,12 @@
+target_default: everything
+
+include:
+  - 3_observations.yml
+
+
+targets:
+  everything:
+    depends:
+      - 3_observations
+
+

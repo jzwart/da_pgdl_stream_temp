@@ -1,0 +1,13 @@
+
+Pseudo-code of DA-PGDL
+
+1) Produce N-ensemble PRMS-SNTemp output based on drivers, parameters, and process error
+2) Pre-train RGCN with N-ensemble of PRMS-SNTemp output
+3) In forecasting period, (e.g. 2000-2010):
+    a) Produce N state predictions from pre-trained RGCN at each time step (e.g. daily)
+    b) If there are observations
+        i)   Pass N state predictions of 2-3 different states, including an observed state (e.g. stream temperature) to the data assimilation scheme
+        ii)  Update state predictions with DA
+        iii) Pass updated states back to RGCN and update
+    c) Run RGCN for next timestep, training the weights in RGCN and modifying loss function with state uncertainty from last timestep of the DA step
+    d) Repeat
