@@ -17,3 +17,5 @@
 *.rds
 *.Rds
 *.nc
+
+prms_sntemp/*
