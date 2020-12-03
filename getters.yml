@@ -1,0 +1,14 @@
+target_default: none
+
+packages:
+  - scipiper
+
+targets:
+  none:
+    depends:
+
+  #### 1_model_fabric ####
+  # prms-sntemp model zip file
+  1_model_fabric/in/prms_sntemp/20191002_Delaware_streamtemp.zip:
+    command: gd_get('1_model_fabric/in/prms_sntemp/20191002_Delaware_streamtemp.zip.ind')
+

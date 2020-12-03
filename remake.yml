@@ -1,12 +1,16 @@
 target_default: everything
 
 include:
+  - 1_model_fabric.yml
   - 3_observations.yml
+  - 4_pb_model.yml
 
 
 targets:
   everything:
     depends:
+      - 1_model_fabric
       - 3_observations
+      - 4_pb_model
 
 

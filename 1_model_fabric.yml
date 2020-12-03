@@ -1,0 +1,47 @@
+target_default: 1_model_fabric
+
+packages:
+  - dplyr
+  - feather
+  - lubridate
+  - yaml
+
+sources:
+  - 1_model_fabric/src/get_prms_sntemp_model.R
+  - 4_pb_model/src/set_sntemp_output.R
+
+targets:
+  1_model_fabric:
+    depends:
+
+  # getting some settings for running PRMS-SNTemp uncalibrated
+  model_settings:
+    command: read_yaml('4_pb_model/cfg/model_settings.yml')
+
+  orig_model_loc:
+    command: model_settings[[I('orig_model_loc')]]
+
+  pb_model_run_loc:
+    command: model_settings[[I('pb_model_run_loc')]]
+
+  sntemp_output_vars:
+    command: model_settings[[I('sntemp_output')]]
+
+  # need to make sure that 20191002_Delaware_streamtemp folder is in project on
+  #  local machine; this is on GD if not on local machine
+  # within this function, moving model to temporary run location so that we can change parameters, etc.. while keeping
+  #  original model preserved
+  4_pb_model/tmp/control/delaware.control.ind:
+    command: get_prms_sntemp_model(
+      out_ind = target_name,
+      gd_zip_ind_file = '1_model_fabric/in/prms_sntemp/20191002_Delaware_streamtemp.zip.ind',
+      unzip_loc = I('prms_sntemp'),
+      orig_model_loc = orig_model_loc,
+      model_run_loc = pb_model_run_loc)
+
+  set_sntemp_output_vars:
+    command: set_sntemp_output(
+      output_names = sntemp_output_vars,
+      model_run_loc = pb_model_run_loc)
+    depends: '4_pb_model/tmp/control/delaware.control.ind'
+

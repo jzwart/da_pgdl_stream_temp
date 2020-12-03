@@ -14,4 +14,26 @@ targets:
 
 # create ensemble of PRMS-SNTemp runs with varying drivers and parameters
 
+  # model_locations:
+  #   command: get_model_locations()
+
+  n_en:
+    command: model_settings[[I('n_en')]]
+
+  pb_start:
+    command: model_settings[[I('start')]]
+
+  pb_stop:
+    command: model_settings[[I('stop')]]
+
+# create nc model output
+  # 4_pb_model/out/model_output.nc.ind:
+  #   command: nc_create_model_out(
+  #     seg_model_idxs = model_locations,
+  #     n_en = n_en,
+  #     issue_dates,
+  #     project_id,
+  #     vars,
+  #     nc_name_out = target_name)
+
 
