@@ -13,10 +13,6 @@ targets:
     depends:
 
 # create ensemble of PRMS-SNTemp runs with varying drivers and parameters
-
-  # model_locations:
-  #   command: get_model_locations()
-
   n_en:
     command: model_settings[[I('n_en')]]
 
@@ -26,14 +22,20 @@ targets:
   pb_stop:
     command: model_settings[[I('stop')]]
 
+  pb_dates:
+    command: get_model_dates(pb_start, pb_stop)
+
+  project_id:
+    command: model_settings[[I('project_id')]]
+
 # create nc model output
-  # 4_pb_model/out/model_output.nc.ind:
-  #   command: nc_create_model_out(
-  #     seg_model_idxs = model_locations,
-  #     n_en = n_en,
-  #     issue_dates,
-  #     project_id,
-  #     vars,
-  #     nc_name_out = target_name)
+  4_pb_model/out/model_output.nc.ind:
+    command: nc_create_model_out(
+      model_locations_ind = '1_model_fabric/out/model_locations.rds.ind',
+      n_en = n_en,
+      dates = pb_dates,
+      project_id = project_id,
+      vars = sntemp_output_vars,
+      nc_name_out_ind = target_name)
 
 

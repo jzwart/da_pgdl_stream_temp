@@ -1,0 +1,17 @@
+version: 0.3.0
+name: 1_model_fabric/out/drb_subbasins.rds.ind
+type: file
+hash: e2a8e8dae94b09d64e5c3d412d5004e1
+time: 2020-12-03 13:14:45 UTC
+depends:
+  1_model_fabric/cfg/subbasin_outlets.yml: 787f1c43d4383eac5c39fef1381b5bbb
+  pb_model_run_loc: 28ffd3d47a6b9a187319fe51668c93f1
+fixed: 4d61105fc49c776f09cfb369bab20772
+code:
+  functions:
+    create_graph: 502ad9c04ad6d13256a70ed9ea0ec635
+    create_subbasin: 85e26c481a34665c751197c8eaa562ef
+    get_subbasins: a736db273eb7af915c1c74bb54fa944f
+    get_upstream_segs: c001f858643115719bc0b15d89277377
+    is_b_upstream_of_a: ba0550b409348c2a00f4d58c84478b6d
+

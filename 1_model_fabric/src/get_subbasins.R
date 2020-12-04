@@ -48,3 +48,22 @@ get_subbasins = function(ind_file,
   saveRDS(object = subbasins, file = data_file)
   gd_put(remote_ind = ind_file, local_source = data_file, config_file = gd_config)
 }
+
+
+
+get_model_locations = function(ind_file,
+                               subbasins_ind,
+                               subbasin_outlet_id,
+                               gd_config = 'lib/cfg/gd_config.yml'){
+  subbasins = readRDS(sc_retrieve(subbasins_ind, remake_file = 'getters.yml'))
+
+  cur_subbasin = subbasins[subbasin_outlet_id][[subbasin_outlet_id]]
+
+  model_locations = tibble(seg_id_nat = as.character(cur_subbasin$seg_id_nat),
+                           model_idx = as.character(cur_subbasin$model_idx)) %>%
+    arrange(as.numeric(model_idx))
+
+  data_file = as_data_file(ind_file)
+  saveRDS(object = model_locations, file = data_file)
+  gd_put(remote_ind = ind_file, local_source = data_file, config_file = gd_config)
+}

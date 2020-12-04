@@ -1,18 +1,19 @@
 
 
-nc_create_model_out = function(seg_model_idxs,
+nc_create_model_out = function(model_locations_ind,
                                n_en,
-                               issue_dates,
+                               dates,
                                project_id,
                                vars,
-                               nc_name_out,
+                               nc_name_out_ind,
                                overwrite = T){
 
   #Set dimensions
   ens <- as.integer(seq(1, n_en, 1))
-  model_locations <- as.integer(seg_model_idxs)
-  n_issue_date <- length(issue_dates)
-  timestep <- as.integer(seq(0, n_issue_date - 1, 1)) # days since issue date #1
+  model_locations <- as.integer(readRDS(sc_retrieve(model_locations_ind, remake_file = 'getters.yml'))$model_idx)
+  # model_locations <- as.integer(seg_model_idxs)
+  n_dates <- length(dates)
+  timestep <- as.integer(seq(0, n_dates - 1, 1)) # days since issue date #1
 
   ens_dim <- ncdim_def("ens",
                        units = "",
@@ -24,7 +25,7 @@ nc_create_model_out = function(seg_model_idxs,
                        longname = 'stream segment model index')
   time_dim <- ncdim_def("timestep",
                         units = '1 day',
-                        longname = sprintf('Days since %s', issue_dates[1]),
+                        longname = sprintf('Days since %s', dates[1]),
                         vals = timestep)
 
   dim_nchar <- ncdim_def("nchar",

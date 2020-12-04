@@ -14,3 +14,7 @@ orig_model_loc: 'prms_sntemp/20191002_Delaware_streamtemp'
 
 pb_model_run_loc: '4_pb_model/tmp'
 
+subbasin_outlet: '4182'
+
+project_id: 'da_pgdl_stream_temp_20201203'
+

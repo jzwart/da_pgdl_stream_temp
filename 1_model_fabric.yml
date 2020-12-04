@@ -5,14 +5,19 @@ packages:
   - feather
   - lubridate
   - yaml
+  - igraph
 
 sources:
   - 1_model_fabric/src/get_prms_sntemp_model.R
+  - 1_model_fabric/src/get_subbasins.R
+  - 1_model_fabric/src/get_upstream_downstream_segs.R
   - 4_pb_model/src/set_sntemp_output.R
 
 targets:
   1_model_fabric:
     depends:
+    - set_sntemp_output_vars
+    - 1_model_fabric/out/drb_subbasins.rds.ind
 
   # getting some settings for running PRMS-SNTemp uncalibrated
   model_settings:
@@ -26,6 +31,9 @@ targets:
 
   sntemp_output_vars:
     command: model_settings[[I('sntemp_output')]]
+
+  cur_subbasin:
+    command: model_settings[[I('subbasin_outlet')]]
 
   # need to make sure that 20191002_Delaware_streamtemp folder is in project on
   #  local machine; this is on GD if not on local machine
@@ -45,3 +53,14 @@ targets:
       model_run_loc = pb_model_run_loc)
     depends: '4_pb_model/tmp/control/delaware.control.ind'
 
+  1_model_fabric/out/drb_subbasins.rds.ind:
+    command: get_subbasins(
+      ind_file = target_name,
+      subbasin_outlet_file = '1_model_fabric/cfg/subbasin_outlets.yml',
+      model_run_loc = pb_model_run_loc)
+
+  1_model_fabric/out/model_locations.rds.ind:
+    command: get_model_locations(
+      ind_file = target_name,
+      subbasins_ind = '1_model_fabric/out/drb_subbasins.rds.ind',
+      subbasin_outlet_id = cur_subbasin)
