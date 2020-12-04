@@ -18,3 +18,67 @@ subbasin_outlet: '4182'
 
 project_id: 'da_pgdl_stream_temp_20201203'
 
+
+states:
+  state:
+  - seg_tave_water
+  - seg_tave_air
+  - seg_tave_upstream
+  - seg_tave_sroff
+  - seg_tave_ss
+  - seg_tave_gw
+  - seg_rain
+  - seg_outflow
+  - seg_upstream_inflow
+  - seginc_gwflow
+  - seginc_potet
+  - seginc_sroff
+  - seginc_ssflow
+  - seginc_swrad
+  - seg_humid
+  - seg_shade
+  - seg_ccov
+  - seg_width
+  units:
+  - degrees C
+  - degrees C
+  - degrees C
+  - degrees C
+  - degrees C
+  - degrees C
+  longname:
+  - Computed daily mean stream temperature for each segment
+  - Area-weighted average air temperature for each segment from HRUs contributing flow to the segment
+  - Temperature of streamflow entering each segment
+  - surface runoff temperature
+  - subsurface temperature
+  - groundwater temperature
+  - Area-weighted average rainfall for each segment from HRUs contributing flow to the segment
+  - Streamflow leaving a segment
+  - Sum of inflow from upstream segments
+  prec:
+  - float
+  - float
+  - float
+  - float
+  - float
+  - float
+
+# model drivers
+drivers:
+  driver:
+  - prcp
+  - tmax
+  - tmin
+  units:
+  - inches
+  - degrees F
+  - degrees F
+  longname:
+  - daily accumulated precipitation
+  - maximum daily temperature
+  - minimum daily temperature
+  prec:
+  - float
+  - float
+  - float
