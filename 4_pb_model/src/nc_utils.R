@@ -1,19 +1,18 @@
 
 
-nc_create_model_out = function(model_locations_ind,
-                               n_en,
-                               dates,
-                               project_id,
-                               vars,
-                               nc_name_out_ind,
-                               overwrite = T){
+nc_create_pb_pretrain_out = function(model_locations_ind,
+                                     n_en,
+                                     dates,
+                                     project_id,
+                                     vars,
+                                     nc_name_out_ind,
+                                     overwrite = T){
 
   #Set dimensions
   ens <- as.integer(seq(1, n_en, 1))
   model_locations <- as.integer(readRDS(sc_retrieve(model_locations_ind, remake_file = 'getters.yml'))$model_idx)
-  # model_locations <- as.integer(seg_model_idxs)
   n_dates <- length(dates)
-  timestep <- as.integer(seq(0, n_dates - 1, 1)) # days since issue date #1
+  timestep <- as.integer(seq(0, n_dates - 1, 1)) # days since dates[1]
 
   ens_dim <- ncdim_def("ens",
                        units = "",
@@ -30,7 +29,7 @@ nc_create_model_out = function(model_locations_ind,
 
   dim_nchar <- ncdim_def("nchar",
                          units = "",
-                         vals = 1:nchar(as.character(issue_dates[1])),
+                         vals = 1:nchar(as.character(dates[1])),
                          create_dimvar = FALSE)
   ## quick check that units are valid
   udunits2::ud.is.parseable(ens_dim$units)
@@ -41,9 +40,9 @@ nc_create_model_out = function(model_locations_ind,
   #Define variables
   fillvalue <- 1e32
 
-  # use same dimensions as NOAA forecasts [lon, lat, ensemble, issue date]
+  # use same dimensions as NOAA  [lon, lat, ensemble, date]
   def_list <- list()
-  # loop through variables that we're forecasting
+  # loop through variables that we're predicting
   n_vars = length(vars$state)
   for(i in 1:n_vars){
     def_list[[i]] <- ncvar_def(name =  vars$state[i],
