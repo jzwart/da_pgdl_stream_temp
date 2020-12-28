@@ -63,7 +63,7 @@ model_da.rnn_layer.reset_states(states=[h, c])
 forecast_preds = model_forecast.predict(data['x_pred'], batch_size=1)
 print(forecast_preds)
 # make predictions and store states for updating with EnKF 
-da_preds = model_da.predict(da_drivers, batch_size = 1)
+da_preds = model_da.predict(da_drivers, batch_size = 1) # make this dynamic batch size based on x_pred shape 
 cur_h, cur_c = model_da.rnn_layer.states 
 print(da_preds)
 
@@ -78,6 +78,7 @@ for t in range(1, n_step):
     # make predictions  and store states for updating with EnKF 
     cur_drivers = data['x_pred'][:,t,:].reshape((data['x_pred'].shape[0],1,data['x_pred'].shape[2]))
     cur_preds = model_da.predict(cur_drivers, batch_size = 1)
+    ## NEED TO CONVERT FROM SCALED TEMP TO ACTUAL WATER TEMP ## 
     cur_h, cur_c = model_da.rnn_layer.states 
     
     cur_states = combine_lstm_states(cur_preds[:,0,:], cur_h.numpy(), cur_c.numpy())
@@ -89,4 +90,9 @@ for t in range(1, n_step):
         #Y = kalman_filter(Y, R, obs_mat, H, n_en, t)
 
 
-print(forecast_preds, Y[0,:,:])
+print(forecast_preds[0,:,:], Y[0,:,:])
+import matplotlib.pyplot as plt
+plt.plot(Y[0,:,:], forecast_preds[0,:,:], 'ro')
+
+plt.plot(Y[0,:,:], 'ro', Y[1,:,:], 'bo', Y[2,:,:], 'go')
+plt.plot(Y[0,:,:], Y[1,:,:], 'ro')
