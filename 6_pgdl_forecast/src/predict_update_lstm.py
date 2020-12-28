@@ -1,6 +1,5 @@
 import numpy as np
 import tensorflow as tf
-tf.enable_eager_execution() # Jake has to upgrade to tensorflow 2.x 
 import sys
 sys.path.insert(1, '5_pgdl_pretrain/src')
 from LSTMDA import LSTMDA
@@ -89,7 +88,5 @@ for t in range(1, n_step):
         print('updating with Kalman filter...') 
         #Y = kalman_filter(Y, R, obs_mat, H, n_en, t)
 
-# adjust the states
-# model.rnn_layer.reset_states(states=[np.array([[-10]]), np.array([[-100]])])
-# p = model.predict(data['x_pred'], batch_size=1)
-# print(p)
+
+print(forecast_preds, Y[0,:,:])

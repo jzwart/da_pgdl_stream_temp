@@ -20,4 +20,7 @@ def train_save_model(input_data, out_model_file, out_h_file, out_c_file):
     np.save(out_c_file, c.numpy())
 
 
-train_save_model('5_pgdl_pretrain/in/lstm_da_data_just_air_temp.npz', 'lstm_da_trained_wgts/', 'h.npy', 'c.npy')
+train_save_model('5_pgdl_pretrain/in/lstm_da_data_just_air_temp.npz',
+                 '5_pgdl_pretrain/out/lstm_da_trained_wgts/',
+                 '5_pgdl_pretrain/out/h.npy', 
+                 '5_pgdl_pretrain/out/c.npy')

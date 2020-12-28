@@ -19,3 +19,5 @@
 *.nc
 
 prms_sntemp/*
+
+__pycache__/
