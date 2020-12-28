@@ -84,31 +84,76 @@ def get_obs_matrix(obs_array, model_locations, n_step, n_states_obs):
 #  NEED TO MAKE THIS INTO PYTHON CODE ## 
 def kalman_filter(Y,
                   R,
-                  obs,
+                  obs_mat,
                   H,
                   n_en,
-                  cur_step,
-                  n_states_est): 
+                  cur_step): 
     '''
+    calculating the kalman gain and updating all ensembles with Kalman gain and observation error 
     
+    :param Y: vector for storing and updating states for EnKF 
+    :param R: observation error matrix 
+    :param obs_mat:  matrix of observations 
+    :param H: measurement operator matrix saying 1 if there is an observation, 0 otherwise 
+    :param n_en: number of ensemble members 
+    :param cur_step: current model timestep 
     '''
 
-    cur_obs = obs[ , , cur_step]
-
-    cur_obs = ifelse(is.na(cur_obs), 0, cur_obs) # setting NA's to zero so there is no 'error' when compared to estimated states
+    # obs_shape = obs_mat.shape 
+    cur_obs = obs_mat[:,:, cur_step] # .reshape(obs_shape[0],obs_shape[1], 1) 
+    cur_obs = np.where(np.isnan(cur_obs), 0, cur_obs) # setting NA's to zero so there is no 'error' when compared to estimated states
 
     ###### estimate the spread of your ensembles #####
-    Y_mean = matrix(apply(Y[ , cur_step, ], MARGIN = 1, FUN = mean), nrow = length(Y[ , 1, 1])) # calculating the mean of each temp and parameter estimate
-    delta_Y = Y[ , cur_step, ] - matrix(rep(Y_mean, n_en), nrow = length(Y[ , 1, 1])) # difference in ensemble state/parameter and mean of all ensemble states/parameters
+    delta_Y = get_ens_deviate(Y = Y, 
+                              n_en = n_en, 
+                              cur_step = cur_step)  # difference in ensemble state/parameter and mean of all ensemble states/parameters
+    
+    ###### covariance matrix #####
+    P_t = get_covar(deviations = delta_Y, n_en = n_en)
 
-    # estimate Kalman gain w/o covar_inf_factor #
-    K = ((1 / (n_en - 1)) * delta_Y %*% t(delta_Y) %*% t(H[, , cur_step])) %*%
-      qr.solve(((1 / (n_en - 1)) * H[, , cur_step] %*% delta_Y %*% t(delta_Y) %*% t(H[, , cur_step]) + R[, , cur_step]))
+    # estimate Kalman gain #
+    K = np.matmul(np.matmul(P_t, H[:,:,cur_step].T), np.linalg.inv(((1 / (n_en - 1)) * np.matmul(np.matmul(np.matmul(H[:,:,cur_step], delta_Y), delta_Y.T), H[:,:,cur_step].T) + R[:,:,cur_step])))
 
     # update Y vector #
-    for(q in 1:n_en): 
-      Y[, cur_step, q] = Y[, cur_step, q] + K %*% (cur_obs - H[, , cur_step] %*% Y[, cur_step, q]) # adjusting each ensemble using kalman gain and observations
+    Y_shape = Y.shape
+    for q in range(n_en):
+        er = cur_obs - np.matmul(H[:,:,cur_step], Y[:,cur_step,q])
+        Y[:, cur_step, q] = np.add(Y[:,cur_step,q].reshape((Y_shape[0],1)), np.matmul(K, er)).reshape((Y_shape[0])) # adjusting each ensemble using kalman gain and observations
 
-  return Y 
+    return Y 
+
+def get_ens_deviate(Y, n_en, cur_step):
+    '''
+    calculate the ensemble deviations 
+    
+    :param Y: vector for storing and updating states for EnKF 
+    :param n_en: number of ensemble members 
+    :param cur_step: current model timestep 
+    '''
+    Y_shape = Y.shape
+    cur_Y = Y[:,cur_step,:].reshape((Y_shape[0], Y_shape[2]))
+    Y_mean = cur_Y.mean(axis = 1).reshape((Y_shape[0], 1)) # calculating mean of state / param estimates 
+    Y_mean = np.repeat(Y_mean, n_en, axis = 1)
+    
+    delta_Y = np.subtract(cur_Y, Y_mean)
+    
+    return delta_Y
+
+
+def get_covar(deviations, n_en): 
+    '''
+    calculate the covariance matrix of the ensemble deviations 
+    
+    :param deviations: deviations from ensemble mean of each of the state / parameters estimated 
+    :param n_en: number of ensemble members 
+    '''
+    covar = (1 / (n_en - 1)) * np.matmul(deviations, deviations.T) 
+    
+    return covar 
+
+
+
+
+
 
 
