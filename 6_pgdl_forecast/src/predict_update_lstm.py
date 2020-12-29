@@ -7,6 +7,14 @@ sys.path.insert(1, 'utils/src')
 from EnKF_functions import * 
 
 train_dir = '5_pgdl_pretrain/out'
+process_error = True # T/F add process error during DA step 
+beta = 0.5 # weighting for how much uncertainty should go to observed vs. 
+               # unobserved states (lower beta attributes most of the 
+               # uncertainty for unobserved states, higher beta attributes
+               # most uncertainty to observed states)
+alpha = 0.9  # weight for how quickly the process error is allowed to 
+               # adapt (low alpha quickly changes process error 
+               # based on current innovations)
 
 # load in the data 
 data = np.load('5_pgdl_pretrain/in/lstm_da_data_just_air_temp.npz')
@@ -14,16 +22,16 @@ data = np.load('5_pgdl_pretrain/in/lstm_da_data_just_air_temp.npz')
 # get model prediction parameters for setting up EnKF matrices 
 obs_array = data['y_pred']
 n_states_obs, n_step, tmp = obs_array.shape
-model_locations = ('1') # model index of the stream segments 
-n_en = 1 # number of ensembles 
-state_sd = np.repeat(0.5, n_states_obs) # uncertainty around observations 
+model_locations = np.array(['1573']) # model index of the stream segments 
+n_en = 30 # number of ensembles 
+state_sd = np.repeat(1, n_states_obs) # uncertainty around observations 
+dates = data['dates_pred']
 
 # load LSTM states from trained model 
 h = np.load(train_dir + '/h.npy', allow_pickle=True)
 c = np.load(train_dir + '/c.npy', allow_pickle=True)
 
-states = combine_lstm_states(h, h, c)
-n_states_est = states.shape[0] # number of states we're estimating (predictions + LSTM states) 
+n_states_est = 3 # number of states we're estimating (predictions, h, c) 
 
 # set up EnKF matrices 
 obs_mat = get_obs_matrix(obs_array, 
@@ -35,6 +43,15 @@ obs_mat = get_obs_matrix(obs_array,
 Y = get_Y_vector(n_states_est, 
                  n_step, 
                  n_en)
+
+# model error matrix 
+Q = get_model_error_matrix(n_states_est,
+                           n_step,
+                           state_sd)
+
+# covariance matrix 
+P = get_covar_matrix(n_states_est, 
+                     n_step)
 
 # observation error matrix 
 R = get_obs_error_matrix(n_states_obs,
@@ -52,47 +69,119 @@ model_forecast = LSTMDA(1) # model that will make forecasts many days into futur
 model_da = LSTMDA(1) # model that will make predictions only one day into future 
 model_forecast.load_weights(train_dir + '/lstm_da_trained_wgts/')
 model_da.load_weights(train_dir + '/lstm_da_trained_wgts/')
-model_forecast.rnn_layer.build(input_shape=data['x_pred'].shape) # full timestep forecast 
+forecast_shape = (n_en, data['x_pred'].shape[1], 1) 
+model_forecast.rnn_layer.build(input_shape=forecast_shape) # full timestep forecast 
 da_drivers = data['x_pred'][:,0,:].reshape((data['x_pred'].shape[0],1,data['x_pred'].shape[2])) # only single timestep for DA model
-model_da.rnn_layer.build(input_shape=da_drivers.shape)
+da_shape = (n_en, 1, 1)
+model_da.rnn_layer.build(input_shape=da_shape)
 
 # initialize the states with the previously trained states 
 model_forecast.rnn_layer.reset_states(states=[h, c])
 model_da.rnn_layer.reset_states(states=[h, c])
 #make forecasts 
-forecast_preds = model_forecast.predict(data['x_pred'], batch_size=1)
-print(forecast_preds)
+forecast_preds = model_forecast.predict(data['x_pred'], batch_size=n_en)
+#print(forecast_preds)
 # make predictions and store states for updating with EnKF 
-da_preds = model_da.predict(da_drivers, batch_size = 1) # make this dynamic batch size based on x_pred shape 
+da_preds = model_da.predict(da_drivers, batch_size = n_en) # make this dynamic batch size based on n_en
 cur_h, cur_c = model_da.rnn_layer.states 
-print(da_preds)
+#print(da_preds)
 
-cur_states = combine_lstm_states(da_preds[:,0,:], cur_h.numpy(), cur_c.numpy())
+cur_states = combine_lstm_states(
+        preds = da_preds[:,0,:], 
+        h = cur_h.numpy(), 
+        c = cur_c.numpy())
 Y[:,0,:] = cur_states # storing in Y for EnKF updating 
+cur_deviations = get_ens_deviate(
+        Y = Y, 
+        n_en = n_en,
+        cur_step = 0)
+P[:,:,0] = get_covar(deviations = cur_deviations, n_en = n_en)
 
 # loop through forecast time steps and make forecasts & update with EnKF 
 for t in range(1, n_step):
     # update lstm with h & c states stored in Y from previous timestep 
-    model_da.rnn_layer.reset_states(states=[np.array([Y[1,t-1,:]]), np.array([Y[2,t-1,:]])]) 
+    model_da.rnn_layer.reset_states(states=[np.array([Y[1,t-1,:]]).T, np.array([Y[2,t-1,:]]).T]) 
 
     # make predictions  and store states for updating with EnKF 
     cur_drivers = data['x_pred'][:,t,:].reshape((data['x_pred'].shape[0],1,data['x_pred'].shape[2]))
-    cur_preds = model_da.predict(cur_drivers, batch_size = 1)
-    ## NEED TO CONVERT FROM SCALED TEMP TO ACTUAL WATER TEMP ## 
+    cur_preds = model_da.predict(cur_drivers, batch_size = n_en)
+
     cur_h, cur_c = model_da.rnn_layer.states 
     
-    cur_states = combine_lstm_states(cur_preds[:,0,:], cur_h.numpy(), cur_c.numpy())
+    cur_states = combine_lstm_states(
+            cur_preds[:,0,:],
+            cur_h.numpy(), 
+            cur_c.numpy())
     Y[:,t,:] = cur_states # storing in Y for EnKF updating 
+    
+    if process_error: 
+        # uncorrupted ensemble deviations before adding process error 
+        dstar_t = get_ens_deviate(Y = Y,
+                                  n_en = n_en,
+                                  cur_step = t)
+        # uncorrupted covariance before adding process error 
+        Pstar_t = get_covar(deviations = dstar_t, 
+                            n_en = n_en) 
+        
+        # add process error 
+        Y = add_process_error(Y = Y, 
+                              Q = Q,
+                              n_en = n_en,
+                              cur_step = t)
+        # ensemble deviations with process error 
+        d_t = get_ens_deviate(Y = Y,
+                              n_en = n_en, 
+                              cur_step = t)
+        # covariance with process error 
+        P[:,:,t] = get_covar(deviations = d_t,
+                             n_en = n_en)
+        
+        y_it = get_innovations(obs_mat = obs_mat,
+                               H = H,
+                               Y = Y,
+                               R = R, 
+                               cur_step = t,
+                               n_en = n_en,
+                               n_states_obs = n_states_obs)
+        S_t = get_covar(deviations = y_it,
+                        n_en = n_en)
+        # update model process error matrix 
+        if t < (n_step-1):
+            Q = update_model_error(Y = Y,
+                                   R = R,
+                                   H = H,
+                                   Q = Q, 
+                                   P = P, 
+                                   Pstar_t = Pstar_t,
+                                   S_t = S_t,
+                                   n_en = n_en,
+                                   cur_step = t,
+                                   beta = beta,
+                                   alpha = alpha)
 
     any_obs = H[:,:,t] == 1 # are there any observations at this timestep? 
     if any_obs.any(): 
         print('updating with Kalman filter...') 
-        #Y = kalman_filter(Y, R, obs_mat, H, n_en, t)
+        Y = kalman_filter(Y, R, obs_mat, H, n_en, t)
 
+out = {
+    "Y": Y,
+    "obs": obs_mat,
+    "R": R,
+    "Q": Q,
+    "P": P,
+    "dates": dates,
+    "model_locations": model_locations,
+    "preds_no_da": forecast_preds,
+    }
+np.savez('5_pgdl_pretrain/out/simple_lstm_da.npz', **out)
 
-print(forecast_preds[0,:,:], Y[0,:,:])
-import matplotlib.pyplot as plt
-plt.plot(Y[0,:,:], forecast_preds[0,:,:], 'ro')
+#print(forecast_preds[0,:,:], Y[0,:,:])
+#import matplotlib.pyplot as plt
+#plt.plot(Y[0,:,:], forecast_preds[:,:,0].T, 'ro')
 
-plt.plot(Y[0,:,:], 'ro', Y[1,:,:], 'bo', Y[2,:,:], 'go')
-plt.plot(Y[0,:,:], Y[1,:,:], 'ro')
+#plt.plot(Y[0,:,:], 'ro', Y[1,:,:], 'bo', Y[2,:,:], 'go')
+#plt.plot(Y[0,:,:], Y[1,:,:], 'ro')
+#plt.plot(Y[0,:,:], Y[2,:,:], 'ro')
+#plt.plot(Y[0,:,:], obs_mat[0,:,:].T, 'o')
+#plt.plot(Y[0,:,:],'r', obs_mat[0,:,:].T, 'b')
