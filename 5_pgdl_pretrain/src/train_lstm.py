@@ -21,6 +21,9 @@ def train_save_model(
     mymodel.compile(loss=rmse_masked,
                     optimizer=tf.optimizers.Adam(learning_rate=0.3))
     mymodel.fit(x=data['x_trn'], y=data['y_trn'], epochs=n_epochs, batch_size=n_batch)
+    #for i in range(n_epochs):
+    #    mymodel.fit(x=data['x_trn'], y=data['y_trn'], epochs=1, batch_size=n_batch)
+    #    mymodel.reset_states()
     mymodel.save_weights(out_model_file)
     h, c = mymodel.rnn_layer.states
     np.save(out_h_file, h.numpy())

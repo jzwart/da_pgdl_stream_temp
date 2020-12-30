@@ -103,7 +103,8 @@ def prep_data_lstm_da(
     x_trn = np.repeat(x_trn, n_en, axis = 0)  
     # adding noise to predictors 
     for i in range(n_en):
-        x_trn[i,:,:] = x_trn[i,:,:] + np.random.normal(scale = 0.1, size = x_trn.shape[1]).reshape((x_trn.shape[1],1))
+        # should make this adjusted not by the scaled drivers 
+        x_trn[i,:,:] = x_trn[i,:,:] + np.random.normal(scale = 0.2, size = x_trn.shape[1]).reshape((x_trn.shape[1],1))
     
     y_trn = fmt_dataset(y_trn)
     y_trn = np.repeat(y_trn, n_en, axis = 0)  
@@ -133,5 +134,5 @@ prep_data_lstm_da(
     start_date_pred = "2012-06-02",
     end_date_pred = "2013-06-02",
     out_file="5_pgdl_pretrain/in/lstm_da_data_just_air_temp.npz",
-    n_en = 30
+    n_en = 100
 )

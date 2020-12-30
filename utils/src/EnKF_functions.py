@@ -241,7 +241,7 @@ def get_error_dist(
     H_t = H[:,:,cur_step]
     
     I = np.identity(H_t.shape[1]) # identity matrix 
-    # had to add R[:,:,cur_step] to make matrix solve not singular
+    # had to add R[:,:,cur_step] to make matrix solve not singular; is singular when there are no observations to assimilate 
     gamma = np.matmul(((1 - beta) * (np.linalg.inv(np.matmul(np.matmul(H_t, P_t), H_t.T) + R[:,:,cur_step]))),
                      np.matmul(np.matmul(H_t, P_t), (I - np.matmul(H_t.T, H_t)))) + beta * H_t 
     gamma = gamma.T
@@ -311,6 +311,9 @@ def update_model_error(
                            n_en = n_en,
                            cur_step = cur_step,
                            beta = beta)
+    
+    # trying to add error to h and c ; make this smarter than adding constant variable 
+    gamma = gamma + np.array([[0],[.2],[.2]])
     
     Q_hat = np.matmul(np.matmul(gamma, (S_t - np.matmul(np.matmul(H[:,:,cur_step], Pstar_t), H[:,:,cur_step].T) - R[:,:,cur_step])), gamma.T)
 
