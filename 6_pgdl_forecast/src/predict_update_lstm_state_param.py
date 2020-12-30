@@ -104,6 +104,16 @@ cur_deviations = get_ens_deviate(
         cur_step = 0)
 P[:,:,0] = get_covar(deviations = cur_deviations, n_en = n_en)
 
+# testing out resetting weights 
+cur_drivers = data['x_pred'][:,1,:].reshape((data['x_pred'].shape[0],1,data['x_pred'].shape[2]))
+cur_preds = model_da.predict(cur_drivers, batch_size = n_en)
+print(cur_preds)    
+cur_weights = model_da.get_weights()
+cur_weights[0][0,0] = 1.5
+cur_weights[0][0,3] = 3
+model_da.set_weights(cur_weights)
+adj_preds = model_da.predict(cur_drivers, batch_size = n_en)
+print(adj_preds, cur_preds)
 
 if store_raw_states: 
     for t in range(1, n_step):
@@ -217,7 +227,7 @@ else:
     #"preds_no_da": forecast_preds,
     }
 
-np.savez('5_pgdl_pretrain/out/simple_lstm_da_50epoch.npz', **out)
+np.savez('5_pgdl_pretrain/out/simple_lstm_da.npz', **out)
 
 #print(forecast_preds[0,:,:], Y[0,:,:])
 #import matplotlib.pyplot as plt

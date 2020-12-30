@@ -72,6 +72,7 @@ def prep_data_lstm_da(
     x_vars=["seg_tave_air"],
     y_vars=["temp_c"],
     out_file=None,
+    n_en = 1, # number of ensembles for DA - creating n_en batches 
 ):
     x_trn, x_pred = prep_one_var_lstm_da(
         driver_file,
@@ -93,14 +94,31 @@ def prep_data_lstm_da(
         end_date_pred,
         scale_data=False,
     )
-
+    
+    dates_trn = x_trn.date.values
+    dates_pred = x_pred.date.values
+    
+    # creating n_en training 
+    x_trn = fmt_dataset(x_trn)
+    x_trn = np.repeat(x_trn, n_en, axis = 0)  
+    # adding noise to predictors 
+    for i in range(n_en):
+        # should make this adjusted not by the scaled drivers 
+        x_trn[i,:,:] = x_trn[i,:,:] + np.random.normal(scale = 0.2, size = x_trn.shape[1]).reshape((x_trn.shape[1],1))
+    
+    y_trn = fmt_dataset(y_trn)
+    y_trn = np.repeat(y_trn, n_en, axis = 0)  
+    
+    x_pred = fmt_dataset(x_pred)
+    y_pred = fmt_dataset(y_pred)
+    
     data = {
-        "x_trn": fmt_dataset(x_trn),
-        "x_pred": fmt_dataset(x_pred),
-        "dates_trn": x_trn.date.values,
-        "dates_pred": x_pred.date.values,
-        "y_trn": fmt_dataset(y_trn),
-        "y_pred": fmt_dataset(y_pred),
+        "x_trn": x_trn,
+        "x_pred": x_pred,
+        "dates_trn": dates_trn,
+        "dates_pred": dates_pred,
+        "y_trn": y_trn,
+        "y_pred": y_pred,
     }
     if out_file:
         np.savez_compressed(out_file, **data)
@@ -108,12 +126,13 @@ def prep_data_lstm_da(
 
 
 prep_data_lstm_da(
-    "../../../drb-dl-model/data/in/obs_temp_full",
-    "../../../drb-dl-model/data/in/uncal_sntemp_input_output",
-    1573,
-    "2011-06-01",
-    "2012-06-01",
-    "2012-06-02",
-    "2012-07-02",
-    out_file="../out/lstm_da_data_just_air_temp.npz",
+    obs_temp_file = "5_pgdl_pretrain/in/obs_temp_full",
+    driver_file = "5_pgdl_pretrain/in/uncal_sntemp_input_output",
+    seg_id = 1573,
+    start_date_trn = "2000-06-01",
+    end_date_trn = "2012-06-01",
+    start_date_pred = "2012-06-02",
+    end_date_pred = "2013-06-02",
+    out_file="5_pgdl_pretrain/in/lstm_da_data_just_air_temp.npz",
+    n_en = 100
 )
