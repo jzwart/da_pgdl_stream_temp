@@ -32,43 +32,22 @@ dates = data['dates_pred']
 h = np.load(train_dir + '/h.npy', allow_pickle=True)
 c = np.load(train_dir + '/c.npy', allow_pickle=True)
 
-n_states_est = 3 # number of states we're estimating (predictions, h, c) 
+n_states_est = 3 # number of states we're estimating (predictions, h, c) for a single segment 
 
 # set up EnKF matrices 
-obs_mat = get_obs_matrix(obs_array, 
-                         model_locations,
-                         n_step,
-                         n_states_obs)
+obs_mat, Y, Q, P, R, H = get_EnKF_matrices(obs_array = obs_array, 
+                                           model_locations = model_locations,
+                                           n_step = n_step,
+                                           n_states_obs = n_states_obs, 
+                                           n_states_est = n_states_est,
+                                           n_en = n_en,
+                                           state_sd = state_sd)
 
-# Y vector for storing state estimates and updates 
-Y = get_Y_vector(n_states_est, 
-                 n_step, 
-                 n_en)
 if store_raw_states: 
     Y_no_da = get_Y_vector(n_states_est, 
                            n_step, 
                            n_en)
     
-# model error matrix 
-Q = get_model_error_matrix(n_states_est,
-                           n_step,
-                           state_sd)
-
-# covariance matrix 
-P = get_covar_matrix(n_states_est, 
-                     n_step)
-
-# observation error matrix 
-R = get_obs_error_matrix(n_states_obs,
-                         n_step,
-                         state_sd)
-
-# observation identity matrix 
-H = get_obs_id_matrix(n_states_obs,
-                      n_states_est, 
-                      n_step, 
-                      obs_mat) 
-
 # define LSTM model using previously trained model; use one model for making forecasts many days into the future and one for updating states (will only make predictions 1 timestep at a time) 
 #model_forecast = LSTMDA(1) # model that will make forecasts many days into future 
 model_da = LSTMDA(1) # model that will make predictions only one day into future 

@@ -4,7 +4,7 @@ library(ggplot2)
 library(reticulate)
 np = import('numpy')
 
-d = np$load('5_pgdl_pretrain/out/simple_lstm_da_5epoch.npz')
+d = np$load('5_pgdl_pretrain/out/simple_lstm_da_50epoch.npz')
 
 obs = d$f[['obs']] #[,,1:10]
 Y = d$f[['Y']]#[,1:10,]

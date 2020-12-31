@@ -322,5 +322,47 @@ def update_model_error(
     return Q 
 
 
+def get_EnKF_matrices(
+        obs_array, 
+        model_locations,
+        n_step,
+        n_states_obs,
+        n_states_est,
+        n_en,
+        state_sd
+):
+    '''
+    wrapper for getting EnKF matrices 
+    '''
+    obs_mat = get_obs_matrix(obs_array, 
+                         model_locations,
+                         n_step,
+                         n_states_obs)
 
+    # Y vector for storing state estimates and updates 
+    Y = get_Y_vector(n_states_est, 
+                     n_step, 
+                     n_en)
+    
+    # model error matrix 
+    Q = get_model_error_matrix(n_states_est,
+                           n_step,
+                           state_sd)
+
+    # covariance matrix 
+    P = get_covar_matrix(n_states_est, 
+                         n_step)
+    
+    # observation error matrix 
+    R = get_obs_error_matrix(n_states_obs,
+                             n_step,
+                             state_sd)
+    
+    # observation identity matrix 
+    H = get_obs_id_matrix(n_states_obs,
+                          n_states_est, 
+                          n_step, 
+                          obs_mat) 
+    
+    return obs_mat, Y, Q, P, R, H 
 
