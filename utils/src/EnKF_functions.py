@@ -313,7 +313,13 @@ def update_model_error(
                            beta = beta)
     
     # trying to add error to h and c ; make this smarter than adding constant variable 
-    gamma = gamma + np.array([[0],[.2],[.2]])
+    # gamma = gamma + np.array([[0],[.2],[.2]])
+    
+    # add error to unobserved values only (similar to inflation factor); 
+    # adding a fraction based on the obs error 
+    H_unobs_t = np.where(H[:,:,cur_step] == 0, 1, 0)
+    to_add = H_unobs_t * np.matmul(H[:,:,cur_step], gamma) * 0.2 
+    gamma = gamma + to_add.T 
     
     Q_hat = np.matmul(np.matmul(gamma, (S_t - np.matmul(np.matmul(H[:,:,cur_step], Pstar_t), H[:,:,cur_step].T) - R[:,:,cur_step])), gamma.T)
 
