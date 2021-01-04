@@ -18,7 +18,11 @@ cur_model_idxs = d$f[['model_locations']]
 #preds_no_da = d$f[['preds_no_da']]
 Y_no_da = d$f[['Y_no_da']]
 
-#lordville site is seg_id_nat == 1573; model_idx = 224
+add_text <- function(text, location="topright"){
+  legend(location,legend=text, bty ="n", pch=NA)
+}
+
+#lordville site is seg_id_nat == 1573; model_idx = 224; 1574 & 1575 are directly upstream of 1573 and 1577 is directly downstream of 1573
 # cur_model_idxs = '1573'
 for(j in cur_model_idxs){
   # obs[,1,1]
@@ -26,12 +30,16 @@ for(j in cur_model_idxs){
   mean_pred = rowMeans(Y[matrix_loc,,])
   mean_pred_no_da = rowMeans(Y_no_da[matrix_loc,,]) # colMeans(preds_no_da[,,matrix_loc])
 
+  temp_rmse = round(sqrt(mean((mean_pred - obs[matrix_loc,1,])^2, na.rm = T)), 2)
+  temp_rmse_no_da = round(sqrt(mean((mean_pred_no_da - obs[matrix_loc,1,])^2, na.rm = T)), 2)
+
   windows(width = 14, height = 10)
   par(mar = c(3,6,4,3), mfrow = c(2,1))
   plot(Y[matrix_loc,,1] ~ dates, type = 'l',
        ylab = 'Stream Temp (C)', xlab = '', lty=0,
        ylim = c(0,25), #ylim =range(c(Y[matrix_loc,,], obs[matrix_loc,1,]), na.rm = T), #, Y_no_assim[matrix_loc,,])
        cex.axis = 2, cex.lab =2, main = sprintf('model idx %s', j))
+  add_text(sprintf('RMSE DA: %s \nRMSE no DA: %s', temp_rmse, temp_rmse_no_da), location = 'bottomleft')
   points(obs[matrix_loc,1,] ~ dates, col = 'red', pch = 16, cex = 1.2)
   arrows(dates, obs[matrix_loc,1,]+R[matrix_loc,matrix_loc,], dates, obs[matrix_loc,1,]-R[matrix_loc,matrix_loc,],
          angle = 90, length = .05, col = 'red', code = 3)
@@ -41,6 +49,7 @@ for(j in cur_model_idxs){
   }
   lines(mean_pred ~ dates, lwd = 2, col = alpha('black', .5))
   lines(mean_pred_no_da ~ dates, lwd = 2, col = alpha('blue', .5))
+  # abline(v = dates[30])
 
   plot(Q[matrix_loc,matrix_loc,] ~ dates, type = 'l',
        ylab = 'Process Error', xlab = '', lty=3,lwd = 3,
@@ -74,7 +83,7 @@ for(j in cur_model_idxs){
   windows(width = 14, height = 10)
   par(mar = c(3,6,4,3), mfrow = c(2,1))
   plot(Y[matrix_loc_h,,1] ~ dates, type = 'l',
-       ylab = 'h', xlab = '', lty=0,  ylim =range(c(Y[matrix_loc_h,,], na.rm = T)), #, Y_no_assim[matrix_loc,,])
+       ylab = 'h', xlab = '', lty=0, ylim =range(c(Y[matrix_loc_h,,], na.rm = T)), #, Y_no_assim[matrix_loc,,])
        cex.axis = 2, cex.lab =2, main = sprintf('model idx %s', j))
   for(i in 1:n_en){
     lines(Y[matrix_loc_h,,i] ~ dates, col = alpha('grey', .5))
@@ -113,5 +122,36 @@ for(j in cur_model_idxs){
   plot(Q[matrix_loc_c,matrix_loc_c,] ~ dates, type = 'l',
        ylab = 'h Process Error', xlab = '', lty=3,lwd = 3,
        cex.axis = 2, cex.lab =2)
+
+}
+
+
+# h and c ~ LSTM error
+#lordville site is seg_id_nat == 1573; model_idx = 224
+# cur_model_idxs = '1573'
+for(j in cur_model_idxs){
+  matrix_loc = which(cur_model_idxs == j)
+  matrix_loc_h = which(cur_model_idxs == j) + 1
+  matrix_loc_c = which(cur_model_idxs == j) + 2
+  mean_h = rowMeans(Y[matrix_loc_h,,])
+  mean_c = rowMeans(Y[matrix_loc_c,,])
+  mean_h_no_da = rowMeans(Y_no_da[matrix_loc_h,,])
+  mean_c_no_da = rowMeans(Y_no_da[matrix_loc_c,,])
+
+  lstm_error = mean_pred_no_da - obs[matrix_loc,1,]
+
+  h_diff = mean_h - mean_h_no_da
+  c_diff = mean_c - mean_c_no_da
+
+  windows(width = 14, height = 10)
+  par(mar = c(6,6,4,3), mfrow = c(1,2))
+  plot(h_diff ~ lstm_error,
+       ylab = 'h adjustment', xlab = 'LSTM error', lty=0,
+       cex.axis = 2, cex.lab =2, main = sprintf('model idx %s', j))
+  abline(v = 0, h = 0, lty = 2)
+  plot(c_diff ~ lstm_error,
+       ylab = 'c adjustment', xlab = 'LSTM error', lty=0,
+       cex.axis = 2, cex.lab =2, main = sprintf('model idx %s', j))
+  abline(v = 0, h = 0, lty = 2)
 
 }

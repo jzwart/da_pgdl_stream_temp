@@ -44,7 +44,7 @@ def prep_one_var_lstm_da(
     data = data[vars]
 
     # get just the seg_id that we want
-    data = data.loc[dict(seg_id_nat=[seg_id])]
+    data = data.loc[dict(seg_id_nat=seg_id)]
 
     # separate into train/prediction periods
     data_trn = data.loc[dict(date=slice(start_date_trn, end_date_trn))]
@@ -117,6 +117,7 @@ def prep_data_lstm_da(
         "x_pred": x_pred,
         "dates_trn": dates_trn,
         "dates_pred": dates_pred,
+        "model_locations": seg_id, 
         "y_trn": y_trn,
         "y_pred": y_pred,
     }
@@ -124,11 +125,12 @@ def prep_data_lstm_da(
         np.savez_compressed(out_file, **data)
     return data
 
+seg_ids = [1573, 1577] # needs to be a list of seg_ids (even if one segment)
 
 prep_data_lstm_da(
     obs_temp_file = "5_pgdl_pretrain/in/obs_temp_full",
     driver_file = "5_pgdl_pretrain/in/uncal_sntemp_input_output",
-    seg_id = 1573,
+    seg_id = seg_ids,
     start_date_trn = "2000-06-01",
     end_date_trn = "2012-06-01",
     start_date_pred = "2012-06-02",

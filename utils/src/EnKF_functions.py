@@ -78,7 +78,7 @@ def get_obs_id_matrix(
     H = np.zeros((n_states_obs, n_states_est, n_step))
     
     for t in range(n_step):
-        H[0:n_states_obs, 0:n_states_obs, t] = np.where(np.isnan(obs_mat[:,:,t]), 0, 1) # this needs to be a diagonal if predicting for more than 1 stream segment 
+        np.fill_diagonal(H[0:n_states_obs,0:n_states_obs, t], np.where(np.isnan(obs_mat[:,:,t]), 0, 1).reshape((n_states_obs)))
         
     return H
 
@@ -101,7 +101,7 @@ def get_obs_matrix(
     obs_mat[:] = np.NaN 
     
     for i in range(model_locations.shape[0]):
-        cur_site = obs_array[i,:,:]
+        cur_site = obs_array[:,:,i]
         obs_mat[i,0,:] = np.reshape(cur_site, (1, n_step))
     
     return obs_mat

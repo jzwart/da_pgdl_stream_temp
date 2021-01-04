@@ -22,8 +22,8 @@ data = np.load('5_pgdl_pretrain/in/lstm_da_data_just_air_temp.npz')
 
 # get model prediction parameters for setting up EnKF matrices 
 obs_array = data['y_pred']
-n_states_obs, n_step, tmp = obs_array.shape
-model_locations = np.array(['1573']) # model index of the stream segments 
+tmp, n_step, n_states_obs = obs_array.shape
+model_locations = data['model_locations'] # seg_id_nat of the stream segments 
 n_en = 100 # number of ensembles 
 state_sd = np.repeat(1, n_states_obs) # uncertainty around observations 
 dates = data['dates_pred']
@@ -32,7 +32,10 @@ dates = data['dates_pred']
 h = np.load(train_dir + '/h.npy', allow_pickle=True)
 c = np.load(train_dir + '/c.npy', allow_pickle=True)
 
-n_states_est = 3 # number of states we're estimating (predictions, h, c) for a single segment 
+n_states_est = len(model_locations) + 2 # number of states we're estimating (predictions) for x segments + h & c 
+
+# withholding some observations for testing assimilation effectiveness 
+#obs_array[0,25:345,0] = np.nan
 
 # set up EnKF matrices 
 obs_mat, Y, Q, P, R, H = get_EnKF_matrices(obs_array = obs_array, 
@@ -56,7 +59,7 @@ model_da.load_weights(train_dir + '/lstm_da_trained_wgts/')
 #forecast_shape = (n_en, data['x_pred'].shape[1], 1) 
 #model_forecast.rnn_layer.build(input_shape=forecast_shape) # full timestep forecast 
 da_drivers = data['x_pred'][:,0,:].reshape((data['x_pred'].shape[0],1,data['x_pred'].shape[2])) # only single timestep for DA model
-da_shape = (n_en, 1, 1)
+da_shape = (n_en, da_drivers.shape[1], da_drivers.shape[2])
 model_da.rnn_layer.build(input_shape=da_shape)
 
 # initialize the states with the previously trained states 
@@ -106,6 +109,12 @@ if store_raw_states:
 # loop through forecast time steps and make forecasts & update with EnKF 
 for t in range(1, n_step):
     print(dates[t])
+    
+    # testing state adjustment by adjusting h & c by a lot 
+    #if t == 30: 
+    #    Y[1,t-1,:] = np.random.normal(20, 2, n_en)
+    #    Y[2,t-1,:] = np.random.normal(40, 2, n_en)
+    
     # update lstm with h & c states stored in Y from previous timestep 
     model_da.rnn_layer.reset_states(states=[np.array([Y[1,t-1,:]]).T, np.array([Y[2,t-1,:]]).T]) 
 
@@ -168,7 +177,7 @@ for t in range(1, n_step):
 
     any_obs = H[:,:,t] == 1 # are there any observations at this timestep? 
     if any_obs.any(): 
-        #if((t < 100) or (t > 140)): 
+        #if((t < 20) or (t > 35)): 
         print('updating with Kalman filter...') 
         Y = kalman_filter(Y, R, obs_mat, H, n_en, t)
 
