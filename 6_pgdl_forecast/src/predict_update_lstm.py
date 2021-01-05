@@ -22,8 +22,9 @@ data = np.load('5_pgdl_pretrain/in/lstm_da_data_just_air_temp.npz')
 
 # get model prediction parameters for setting up EnKF matrices 
 obs_array = data['y_pred']
-tmp, n_step, n_states_obs = obs_array.shape
+n_states_obs, n_step, tmp = obs_array.shape
 model_locations = data['model_locations'] # seg_id_nat of the stream segments 
+n_segs = len(model_locations)
 n_en = 100 # number of ensembles 
 state_sd = np.repeat(1, n_states_obs) # uncertainty around observations 
 dates = data['dates_pred']
@@ -32,10 +33,12 @@ dates = data['dates_pred']
 h = np.load(train_dir + '/h.npy', allow_pickle=True)
 c = np.load(train_dir + '/c.npy', allow_pickle=True)
 
-n_states_est = len(model_locations) + 2 # number of states we're estimating (predictions) for x segments + h & c 
+n_states_est = 3 * len(model_locations) # number of states we're estimating (predictions, h, c) for x segments
 
 # withholding some observations for testing assimilation effectiveness 
-#obs_array[0,25:345,0] = np.nan
+obs_mat_orig = get_obs_matrix(obs_array, model_locations, n_step, n_states_obs)
+obs_array[0,19:34,0] = np.nan
+#obs_array[0,:,:] = np.nan
 
 # set up EnKF matrices 
 obs_mat, Y, Q, P, R, H = get_EnKF_matrices(obs_array = obs_array, 
@@ -59,7 +62,7 @@ model_da.load_weights(train_dir + '/lstm_da_trained_wgts/')
 #forecast_shape = (n_en, data['x_pred'].shape[1], 1) 
 #model_forecast.rnn_layer.build(input_shape=forecast_shape) # full timestep forecast 
 da_drivers = data['x_pred'][:,0,:].reshape((data['x_pred'].shape[0],1,data['x_pred'].shape[2])) # only single timestep for DA model
-da_shape = (n_en, da_drivers.shape[1], da_drivers.shape[2])
+da_shape = (n_en * len(model_locations), da_drivers.shape[1], da_drivers.shape[2])
 model_da.rnn_layer.build(input_shape=da_shape)
 
 # initialize the states with the previously trained states 
@@ -69,14 +72,17 @@ model_da.rnn_layer.reset_states(states=[h, c])
 #forecast_preds = model_forecast.predict(data['x_pred'], batch_size=n_en)
 #print(forecast_preds)
 # make predictions and store states for updating with EnKF 
-da_preds = model_da.predict(da_drivers, batch_size = n_en) # make this dynamic batch size based on n_en
+da_preds = model_da.predict(np.repeat(da_drivers, n_en, axis = 0), batch_size = n_en * n_segs) # make this dynamic batch size based on n_en
 cur_h, cur_c = model_da.rnn_layer.states 
 #print(da_preds)
 
 cur_states = combine_lstm_states(
         preds = da_preds[:,0,:], 
         h = cur_h.numpy(), 
-        c = cur_c.numpy())
+        c = cur_c.numpy(),
+        n_segs = n_segs,
+        n_states_est = n_states_est,
+        n_en = n_en)
 Y[:,0,:] = cur_states # storing in Y for EnKF updating 
 if store_raw_states: 
     Y_no_da[:,0,:] = cur_states 
@@ -91,18 +97,26 @@ if store_raw_states:
     for t in range(1, n_step):
         print(dates[t])
         # update lstm with h & c states stored in Y from previous timestep 
-        model_da.rnn_layer.reset_states(states=[np.array([Y_no_da[1,t-1,:]]).T, np.array([Y_no_da[2,t-1,:]]).T]) 
+        new_h, new_c = get_updated_lstm_states(
+            Y = Y_no_da,
+            n_segs = n_segs,
+            n_en = n_en,
+            cur_step = t-1)
+        model_da.rnn_layer.reset_states(states=[new_h, new_c]) 
     
         # make predictions  and store states 
         cur_drivers = data['x_pred'][:,t,:].reshape((data['x_pred'].shape[0],1,data['x_pred'].shape[2]))
-        cur_preds = model_da.predict(cur_drivers, batch_size = n_en)
+        cur_preds = model_da.predict(np.repeat(cur_drivers,n_en, axis =0), batch_size = n_en * n_segs)
     
         cur_h, cur_c = model_da.rnn_layer.states 
         
         cur_states = combine_lstm_states(
                 cur_preds[:,0,:],
                 cur_h.numpy(), 
-                cur_c.numpy())
+                cur_c.numpy(),
+                n_segs,
+                n_states_est,
+                n_en)
         Y_no_da[:,t,:] = cur_states # storing in Y for EnKF updating 
 
 
@@ -116,18 +130,26 @@ for t in range(1, n_step):
     #    Y[2,t-1,:] = np.random.normal(40, 2, n_en)
     
     # update lstm with h & c states stored in Y from previous timestep 
-    model_da.rnn_layer.reset_states(states=[np.array([Y[1,t-1,:]]).T, np.array([Y[2,t-1,:]]).T]) 
+    new_h, new_c = get_updated_lstm_states(
+            Y = Y,
+            n_segs = n_segs,
+            n_en = n_en,
+            cur_step = t-1)
+    model_da.rnn_layer.reset_states(states=[new_h, new_c]) 
 
     # make predictions  and store states for updating with EnKF 
     cur_drivers = data['x_pred'][:,t,:].reshape((data['x_pred'].shape[0],1,data['x_pred'].shape[2]))
-    cur_preds = model_da.predict(cur_drivers, batch_size = n_en)
+    cur_preds = model_da.predict(np.repeat(cur_drivers,n_en, axis =0), batch_size = n_en * n_segs)
 
     cur_h, cur_c = model_da.rnn_layer.states 
     
     cur_states = combine_lstm_states(
-            cur_preds[:,0,:],
-            cur_h.numpy(), 
-            cur_c.numpy())
+                cur_preds[:,0,:],
+                cur_h.numpy(), 
+                cur_c.numpy(),
+                n_segs,
+                n_states_est,
+                n_en)
     Y[:,t,:] = cur_states # storing in Y for EnKF updating 
     
     if process_error: 
@@ -142,6 +164,7 @@ for t in range(1, n_step):
         # add process error 
         Y = add_process_error(Y = Y, 
                               Q = Q,
+                              H = H,
                               n_en = n_en,
                               cur_step = t)
         # ensemble deviations with process error 
@@ -177,7 +200,6 @@ for t in range(1, n_step):
 
     any_obs = H[:,:,t] == 1 # are there any observations at this timestep? 
     if any_obs.any(): 
-        #if((t < 20) or (t > 35)): 
         print('updating with Kalman filter...') 
         Y = kalman_filter(Y, R, obs_mat, H, n_en, t)
 
@@ -191,7 +213,7 @@ if store_raw_states:
     "P": P,
     "dates": dates,
     "model_locations": model_locations,
-    #"preds_no_da": forecast_preds,
+    "obs_orig": obs_mat_orig,
     }
 else: 
     out = {
@@ -202,17 +224,9 @@ else:
     "P": P,
     "dates": dates,
     "model_locations": model_locations,
-    #"preds_no_da": forecast_preds,
+    "obs_orig": obs_mat_orig,
     }
 
 np.savez('5_pgdl_pretrain/out/simple_lstm_da_50epoch.npz', **out)
 
-#print(forecast_preds[0,:,:], Y[0,:,:])
-#import matplotlib.pyplot as plt
-#plt.plot(Y[0,:,:], forecast_preds[:,:,0].T, 'ro')
 
-#plt.plot(Y[0,:,:], 'ro', Y[1,:,:], 'bo', Y[2,:,:], 'go')
-#plt.plot(Y[0,:,:], Y[1,:,:], 'ro')
-#plt.plot(Y[0,:,:], Y[2,:,:], 'ro')
-#plt.plot(Y[0,:,:], obs_mat[0,:,:].T, 'o')
-#plt.plot(Y[0,:,:],'r', obs_mat[0,:,:].T, 'b')

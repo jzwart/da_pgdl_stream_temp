@@ -7,6 +7,7 @@ np = import('numpy')
 d = np$load('5_pgdl_pretrain/out/simple_lstm_da_50epoch.npz')
 
 obs = d$f[['obs']] #[,,1:10]
+obs_withheld = d$f[['obs_orig']] # if we withhold observations from DA steps
 Y = d$f[['Y']]#[,1:10,]
 R = d$f[['R']]#[,,1:10]
 Q = d$f[['Q']]
@@ -15,6 +16,7 @@ n_en = 100
 dates = d$f[['dates']]
 n_step = length(dates)
 cur_model_idxs = d$f[['model_locations']]
+n_segs = length(cur_model_idxs)
 #preds_no_da = d$f[['preds_no_da']]
 Y_no_da = d$f[['Y_no_da']]
 
@@ -73,8 +75,8 @@ for(j in cur_model_idxs){
 # cur_model_idxs = '1573'
 for(j in cur_model_idxs){
   # obs[,1,1]
-  matrix_loc_h = which(cur_model_idxs == j) + 1
-  matrix_loc_c = which(cur_model_idxs == j) + 2
+  matrix_loc_h = which(cur_model_idxs == j) + 1*n_segs
+  matrix_loc_c = which(cur_model_idxs == j) + 2*n_segs
   mean_h = rowMeans(Y[matrix_loc_h,,])
   mean_c = rowMeans(Y[matrix_loc_c,,])
   mean_h_no_da = rowMeans(Y_no_da[matrix_loc_h,,])
@@ -110,8 +112,8 @@ for(j in cur_model_idxs){
 # cur_model_idxs = '1573'
 for(j in cur_model_idxs){
   # obs[,1,1]
-  matrix_loc_h = which(cur_model_idxs == j) + 1
-  matrix_loc_c = which(cur_model_idxs == j) + 2
+  matrix_loc_h = which(cur_model_idxs == j) + 1*n_segs
+  matrix_loc_c = which(cur_model_idxs == j) + 2*n_segs
 
   windows(width = 14, height = 10)
   par(mar = c(3,6,4,3), mfrow = c(2,1))
@@ -131,8 +133,8 @@ for(j in cur_model_idxs){
 # cur_model_idxs = '1573'
 for(j in cur_model_idxs){
   matrix_loc = which(cur_model_idxs == j)
-  matrix_loc_h = which(cur_model_idxs == j) + 1
-  matrix_loc_c = which(cur_model_idxs == j) + 2
+  matrix_loc_h = which(cur_model_idxs == j) + 1*n_segs
+  matrix_loc_c = which(cur_model_idxs == j) + 2*n_segs
   mean_h = rowMeans(Y[matrix_loc_h,,])
   mean_c = rowMeans(Y[matrix_loc_c,,])
   mean_h_no_da = rowMeans(Y_no_da[matrix_loc_h,,])
@@ -146,12 +148,37 @@ for(j in cur_model_idxs){
   windows(width = 14, height = 10)
   par(mar = c(6,6,4,3), mfrow = c(1,2))
   plot(h_diff ~ lstm_error,
-       ylab = 'h adjustment', xlab = 'LSTM error', lty=0,
+       ylab = 'h adjustment', xlab = 'LSTM error', lty=0, ylim = range(h_diff[!is.na(lstm_error)]),
        cex.axis = 2, cex.lab =2, main = sprintf('model idx %s', j))
   abline(v = 0, h = 0, lty = 2)
   plot(c_diff ~ lstm_error,
-       ylab = 'c adjustment', xlab = 'LSTM error', lty=0,
+       ylab = 'c adjustment', xlab = 'LSTM error', lty=0, ylim = range(c_diff[!is.na(lstm_error)]),
        cex.axis = 2, cex.lab =2, main = sprintf('model idx %s', j))
   abline(v = 0, h = 0, lty = 2)
 
 }
+
+
+median_P = matrix(nrow = dim(P)[1], ncol = dim(P)[2])
+for(i in 1:nrow(median_P)){
+  for(j in 1:ncol(median_P)){
+    median_P[i,j] = median(P[i,j,])
+  }
+}
+
+library(plot.matrix)
+
+# P through time
+for(j in cur_model_idxs){
+  # obs[,1,1]
+  matrix_loc = which(cur_model_idxs == j)
+
+  windows(width = 14, height = 10)
+  par(mar = c(5,6,4,5), mfrow = c(2,1))
+  plot(P[matrix_loc,matrix_loc,] ~ dates, type = 'l',
+       ylab = 'Sample Covariance', xlab = '', lty=3,lwd = 3,
+       cex.axis = 2, cex.lab =2)
+
+  plot(median_P, main = 'Median Covariance Matrix')
+}
+

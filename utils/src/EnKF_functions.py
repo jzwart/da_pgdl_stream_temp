@@ -10,18 +10,50 @@ import numpy as np
 def combine_lstm_states(
         preds,
         h, 
-        c
+        c,
+        n_segs,
+        n_states_est, 
+        n_en
 ):
     '''
     Combining lstm states for updating in EnKF. Should always be in the order of preds, h, c. 
     
     '''
-    out = np.empty((3, preds.shape[0]))
-    for i in range(out.shape[1]):
-        out[:,i] = np.concatenate((preds[i,:], h[i,:], c[i,:]))
+    out = np.empty((n_states_est, n_en))
+    
+    for i in range(n_en):
+        cur_idxs = np.repeat(i, n_segs) + n_en * (np.arange(0,n_segs))
+        out[:,i] = np.concatenate((preds[cur_idxs,:], h[cur_idxs,:], c[cur_idxs,:])).reshape((n_states_est))
         
     return out
 
+def get_updated_lstm_states(
+        Y,
+        n_segs,
+        n_en, 
+        cur_step
+):
+    '''
+    
+
+    Parameters
+    ----------
+    Y : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    None.
+
+    '''
+    # states should always be stored in the order of preds, h, c 
+    h_idx = np.arange(1*n_segs, 1*n_segs+n_segs) 
+    h = Y[h_idx,cur_step,:].reshape((n_en * n_segs, 1)) 
+    
+    c_idx = np.arange(2*n_segs, 2*n_segs+n_segs) 
+    c = Y[c_idx,cur_step,:].reshape((n_en * n_segs, 1)) 
+    
+    return h, c
 
 def get_Y_vector(
         n_states_est,
@@ -101,7 +133,7 @@ def get_obs_matrix(
     obs_mat[:] = np.NaN 
     
     for i in range(model_locations.shape[0]):
-        cur_site = obs_array[:,:,i]
+        cur_site = obs_array[i,:,:]
         obs_mat[i,0,:] = np.reshape(cur_site, (1, n_step))
     
     return obs_mat
@@ -156,7 +188,7 @@ def kalman_filter(
     '''
 
     # obs_shape = obs_mat.shape 
-    cur_obs = obs_mat[:,:, cur_step] # .reshape(obs_shape[0],obs_shape[1], 1) 
+    cur_obs = obs_mat[:,0, cur_step] # .reshape(obs_shape[0],obs_shape[1], 1) 
     cur_obs = np.where(np.isnan(cur_obs), 0, cur_obs) # setting NA's to zero so there is no 'error' when compared to estimated states
 
     ###### estimate the spread of your ensembles #####
@@ -174,6 +206,7 @@ def kalman_filter(
     Y_shape = Y.shape
     for q in range(n_en):
         er = cur_obs - np.matmul(H[:,:,cur_step], Y[:,cur_step,q])
+        er = er.reshape((er.shape[0], 1))
         Y[:, cur_step, q] = np.add(Y[:,cur_step,q].reshape((Y_shape[0],1)), np.matmul(K, er)).reshape((Y_shape[0])) # adjusting each ensemble using kalman gain and observations
 
     return Y 
@@ -252,6 +285,7 @@ def get_error_dist(
 def add_process_error(
         Y,
         Q,
+        H,
         n_en,
         cur_step
 ):
@@ -259,9 +293,13 @@ def add_process_error(
     adding process error to estimated states from Q 
     
     '''
+    # add error to unobserved values only (similar to inflation factor); 
+    H_unobs_t = np.where(H[:,:,cur_step] == 0, 1, 0)
+    ens_spread = get_ens_deviate(Y, n_en, cur_step)
+    to_add = (ens_spread * 0.05) * H_unobs_t.T
     
     for q in range(n_en):
-        Y[0:Q.shape[1],cur_step,q] = Y[0:Q.shape[1],cur_step,q] + np.random.normal(np.repeat(0,Q.shape[1]), np.sqrt(np.abs(np.diag(Q[:,:,cur_step]))), Q.shape[1])
+        Y[0:Q.shape[1],cur_step,q] = Y[0:Q.shape[1],cur_step,q] + np.random.normal(np.repeat(0,Q.shape[1]), np.sqrt(np.abs(np.diag(Q[:,:,cur_step]))), Q.shape[1]) + to_add[0:Q.shape[1], q] 
     
     return Y 
 
@@ -276,7 +314,7 @@ def get_innovations(
 ):
     '''
     '''
-    cur_obs = obs_mat[:,:,cur_step] 
+    cur_obs = obs_mat[:,0,cur_step] 
     cur_obs = np.where(np.isnan(cur_obs), 0, cur_obs) # setting NA's to zero so there is no 'error' when compared to estimated states
     
     y_it = np.empty((n_states_obs, n_en))
@@ -312,17 +350,18 @@ def update_model_error(
                            cur_step = cur_step,
                            beta = beta)
     
-    # trying to add error to h and c ; make this smarter than adding constant variable 
-    # gamma = gamma + np.array([[0],[.2],[.2]])
-    
     # add error to unobserved values only (similar to inflation factor); 
-    # adding a fraction based on the obs error 
-    H_unobs_t = np.where(H[:,:,cur_step] == 0, 1, 0)
-    to_add = H_unobs_t * np.matmul(H[:,:,cur_step], gamma) * 0.2 
-    gamma = gamma + to_add.T 
+    #  adding a fraction based on the obs error 
+    #H_unobs_t = np.where(H[:,:,cur_step] == 0, 1, 0)
+    #ens_spread = get_ens_deviate(Y, n_en, cur_step)
+    #ens_range = np.max(ens_spread, axis = 1) - np.min(ens_spread, axis = 1) 
+    #to_add = ens_range * 1.02 * H_unobs_t
+    #to_add = np.matmul(np.matmul(H[:,:,cur_step], gamma), H_unobs_t) * 0.2 
+    #gamma = gamma + to_add.T 
     
-    Q_hat = np.matmul(np.matmul(gamma, (S_t - np.matmul(np.matmul(H[:,:,cur_step], Pstar_t), H[:,:,cur_step].T) - R[:,:,cur_step])), gamma.T)
-
+    Q_hat = np.matmul(np.matmul(gamma, (S_t - np.matmul(np.matmul(H[:,:,cur_step], Pstar_t), H[:,:,cur_step].T) - R[:,:,cur_step])), gamma.T) 
+    # np.fill_diagonal(Q_hat, np.diag(Q_hat) + to_add[:,0]) 
+    
     Q[:,:,(cur_step+1)] = alpha * Q[:,:,cur_step] + (1-alpha)*Q_hat
     
     return Q 

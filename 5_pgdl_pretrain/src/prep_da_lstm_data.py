@@ -100,17 +100,25 @@ def prep_data_lstm_da(
     
     # creating n_en training 
     x_trn = fmt_dataset(x_trn)
+    x_trn = np.moveaxis(x_trn, 0, -1)
+    x_trn = np.moveaxis(x_trn, 1, 0)  # should now be in shape of [nseg, seq_len, nfeats]
     x_trn = np.repeat(x_trn, n_en, axis = 0)  
     # adding noise to predictors 
-    for i in range(n_en):
+    for i in range(x_trn.shape[0]):
         # should make this adjusted not by the scaled drivers 
         x_trn[i,:,:] = x_trn[i,:,:] + np.random.normal(scale = 0.2, size = x_trn.shape[1]).reshape((x_trn.shape[1],1))
     
     y_trn = fmt_dataset(y_trn)
+    y_trn = np.moveaxis(y_trn, 0, -1)
+    y_trn = np.moveaxis(y_trn, 1, 0)  # should now be in shape of [nseg, seq_len, nfeats]
     y_trn = np.repeat(y_trn, n_en, axis = 0)  
     
     x_pred = fmt_dataset(x_pred)
+    x_pred = np.moveaxis(x_pred, 0, -1)
+    x_pred = np.moveaxis(x_pred, 1, 0)  # should now be in shape of [nseg, seq_len, nfeats]
     y_pred = fmt_dataset(y_pred)
+    y_pred = np.moveaxis(y_pred, 0, -1)
+    y_pred = np.moveaxis(y_pred, 1, 0)  # should now be in shape of [nseg, seq_len, nfeats]
     
     data = {
         "x_trn": x_trn,
@@ -125,7 +133,7 @@ def prep_data_lstm_da(
         np.savez_compressed(out_file, **data)
     return data
 
-seg_ids = [1573, 1577] # needs to be a list of seg_ids (even if one segment)
+seg_ids = [1573] # needs to be a list of seg_ids (even if one segment)
 
 prep_data_lstm_da(
     obs_temp_file = "5_pgdl_pretrain/in/obs_temp_full",
