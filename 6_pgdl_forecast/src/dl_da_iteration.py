@@ -4,7 +4,7 @@ import numpy as np
 import tensorflow as tf
 import sys
 sys.path.insert(1, '5_pgdl_pretrain/src')
-from LSTMDA import LSTMDA
+from LSTMDA import *
 from prep_synthetic_data import *
 from train_lstm import * 
 sys.path.insert(1, 'utils/src')
@@ -15,6 +15,7 @@ seg_ids = [1573] # needs to be a list of seg_ids (even if one segment)
 n_en = 100 # number of ensemble members 
 cycles = 5 # number of DA-DL cycles make this dynamic based on a stopping criteria 
 n_epochs = 20 # number of epochs during DA-DL cycling 
+obs_freq = 7 # observation frequency in days 
 
 # 1) create true state from SNTemp (already did this step, housed in zarr file)
 # 2) sample from true state to create observations - using function below 
@@ -22,6 +23,7 @@ prep_synthetic_data(
     obs_temp_file = "5_pgdl_pretrain/in/obs_temp_full",
     synthetic_file = "5_pgdl_pretrain/in/uncal_sntemp_input_output",
     synthetic_obs_error = synthetic_obs_error,
+    obs_freq = obs_freq, # frequency of samples in days 
     seg_id = seg_ids,
     start_date_trn = "2011-06-01",
     end_date_trn = "2012-06-01",
@@ -147,18 +149,17 @@ for i in range(0, cycles):
             S_t = get_covar(deviations = y_it,
                             n_en = n_en)
             # update model process error matrix 
-            if t < (n_step-1):
-                Q = update_model_error(Y = Y,
-                                       R = R,
-                                       H = H,
-                                       Q = Q, 
-                                       P = P, 
-                                       Pstar_t = Pstar_t,
-                                       S_t = S_t,
-                                       n_en = n_en,
-                                       cur_step = 0,
-                                       beta = beta,
-                                       alpha = alpha)
+            Q = update_model_error(Y = Y,
+                                   R = R,
+                                   H = H,
+                                   Q = Q, 
+                                   P = P, 
+                                   Pstar_t = Pstar_t,
+                                   S_t = S_t,
+                                   n_en = n_en,
+                                   cur_step = 0,
+                                   beta = beta,
+                                   alpha = alpha)
     
     # loop through forecast time steps and make forecasts & update with EnKF 
     for t in range(1, n_step):
@@ -246,7 +247,7 @@ for i in range(0, cycles):
         cur_Y = Y[0:n_segs:,step,:].reshape((new_y.shape[0], new_y.shape[2]))
         Y_mean = cur_Y.mean(axis = 1).reshape((new_y.shape[0], 1)) # calculating mean of state / param estimates 
         Y_mean = np.repeat(Y_mean, n_en, axis = 1)
-        new_y[:,step,:] = Y_mean
+        new_y[:,step,:] = cur_Y
         P_diag[:,step] = np.diag(P[0:n_segs,0:n_segs,step]) 
     new_y = np.moveaxis(new_y, 2, 0)
     new_y = np.moveaxis(new_y, 1, 2)
@@ -257,8 +258,7 @@ for i in range(0, cycles):
 
     cur_lstm = LSTMDA(1)
     cur_lstm.rnn_layer.build(input_shape=data['x_trn'].shape)
-    cur_lstm.compile(loss=rmse_weighted,
-                    optimizer=tf.optimizers.Adam(learning_rate=0.3))
+    cur_lstm.compile(loss=rmse_weighted, optimizer=tf.optimizers.Adam(learning_rate=0.3))
     cur_lstm.load_weights(train_dir + '/lstm_da_trained_wgts/')
 
     cur_lstm.fit(x=data['x_trn'], y=new_y_cat, epochs=n_epochs, batch_size=n_batch)

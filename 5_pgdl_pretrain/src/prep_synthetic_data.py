@@ -65,6 +65,7 @@ def prep_synthetic_data(
     obs_temp_file,
     synthetic_file,
     synthetic_obs_error,
+    obs_freq, 
     seg_id,
     start_date_trn,
     end_date_trn,
@@ -123,12 +124,15 @@ def prep_synthetic_data(
     y_trn = fmt_dataset(y_trn)
     y_trn = np.moveaxis(y_trn, 0, -1)
     y_trn = np.moveaxis(y_trn, 1, 0)  # should now be in shape of [nseg, seq_len, nfeats]
+    # keeping only observations at obs frequency 
+    not_obs_idx = np.where(np.remainder(np.arange(0, y_trn.shape[1]), obs_freq) !=0)
+    y_trn[:,not_obs_idx,:] = np.NaN # turn all points on non-obs days into nan's 
     y_trn = np.repeat(y_trn, n_en, axis = 0)  
     y_true_trn = y_trn # storing 'true state' 
-   # for i in range(y_trn.shape[0]):  # adding noise to true state 
-    #    y_trn[i,:,:] = y_trn[i,:,:] + np.random.normal(scale = synthetic_obs_error, size = y_trn.shape[1]).reshape((y_trn.shape[1],1))
+    for i in range(y_trn.shape[0]):  # adding noise to true state 
+        y_trn[i,:,:] = y_trn[i,:,:] + np.random.normal(scale = synthetic_obs_error, size = y_trn.shape[1]).reshape((y_trn.shape[1],1))
     # adding same noise to true state for every ensemble  
-    y_trn[:] = y_trn[:] + np.random.normal(scale = synthetic_obs_error, size = y_trn.shape[0] * y_trn.shape[1]).reshape((y_trn.shape))
+    #y_trn[:] = y_trn[:] + np.random.normal(scale = synthetic_obs_error, size = y_trn.shape[0] * y_trn.shape[1]).reshape((y_trn.shape))
     
     x_pred = fmt_dataset(x_pred)
     x_pred = np.moveaxis(x_pred, 0, -1)
@@ -137,9 +141,9 @@ def prep_synthetic_data(
     y_pred = np.moveaxis(y_pred, 0, -1)
     y_pred = np.moveaxis(y_pred, 1, 0)  # should now be in shape of [nseg, seq_len, nfeats]
     y_true_pred = y_pred # storing 'true state' 
-    #for i in range(y_pred.shape[0]):  # adding noise to true state 
-     #   y_pred[i,:,:] = y_pred[i,:,:] + np.random.normal(scale = synthetic_obs_error, size = y_pred.shape[1]).reshape((y_pred.shape[1],1))
-    y_pred[:] = y_pred[:] + np.random.normal(scale = synthetic_obs_error, size = y_pred.shape[0] * y_pred.shape[1]).reshape((y_pred.shape))
+    for i in range(y_pred.shape[0]):  # adding noise to true state 
+        y_pred[i,:,:] = y_pred[i,:,:] + np.random.normal(scale = synthetic_obs_error, size = y_pred.shape[1]).reshape((y_pred.shape[1],1))
+    #y_pred[:] = y_pred[:] + np.random.normal(scale = synthetic_obs_error, size = y_pred.shape[0] * y_pred.shape[1]).reshape((y_pred.shape))
     
     # actual observations 
     obs_trn = fmt_dataset(obs_trn)
