@@ -30,8 +30,8 @@ def train_save_model(
     np.save(out_c_file, c.numpy())
 
 
-train_save_model(input_data = '5_pgdl_pretrain/in/lstm_da_data_just_air_temp.npz',
-                 out_model_file = '5_pgdl_pretrain/out/lstm_da_trained_wgts/',
-                 out_h_file = '5_pgdl_pretrain/out/h.npy', 
-                 out_c_file = '5_pgdl_pretrain/out/c.npy',
-                 n_epochs = 150)
+#train_save_model(input_data = '5_pgdl_pretrain/in/lstm_da_data_just_air_temp.npz',
+ #                out_model_file = '5_pgdl_pretrain/out/lstm_da_trained_wgts/',
+  #               out_h_file = '5_pgdl_pretrain/out/h.npy', 
+   #              out_c_file = '5_pgdl_pretrain/out/c.npy',
+    #             n_epochs = 50)
