@@ -9,6 +9,8 @@ from EnKF_functions import *
 train_dir = '5_pgdl_pretrain/out'
 process_error = True # T/F add process error during DA step 
 store_raw_states = True # T/F store the LSTM states without data assimilation 
+store_forecasts = True # T/F store predictions that are in the future 
+f_horizon = 3 # forecast horizon in days (how many days into the future to make predictions)
 beta = 0.5 # weighting for how much uncertainty should go to observed vs. 
                # unobserved states (lower beta attributes most of the 
                # uncertainty for unobserved states, higher beta attributes
@@ -54,23 +56,36 @@ if store_raw_states:
                            n_step, 
                            n_en)
     
+if store_forecasts: 
+    Y_forecasts = get_forecast_matrix(n_states_obs, 
+                                      n_step, 
+                                      n_en, 
+                                      f_horizon)
+    
 # define LSTM model using previously trained model; use one model for making forecasts many days into the future and one for updating states (will only make predictions 1 timestep at a time) 
-#model_forecast = LSTMDA(1) # model that will make forecasts many days into future 
+if store_forecasts:
+    model_forecast = LSTMDA(1) # model that will make forecasts many days into future 
+    model_forecast.load_weights(train_dir + '/lstm_da_trained_wgts/')
+    forecast_shape = (n_en * len(model_locations), f_horizon, data['x_pred'].shape[2]) 
+    model_forecast.rnn_layer.build(input_shape=forecast_shape) # full timestep forecast 
+    model_forecast.rnn_layer.reset_states(states=[h, c])
+    forecast_drivers = data['x_pred'][:,0:f_horizon,:].reshape((data['x_pred'].shape[0], f_horizon, data['x_pred'].shape[2]))
+    forecast_preds = model_forecast.predict(np.repeat(forecast_drivers, n_en, axis = 0), batch_size = n_en * n_segs)
+    cur_forecast = get_forecast_preds(preds = forecast_preds,
+                                      n_segs = n_segs,
+                                      n_states_obs = n_states_obs, 
+                                      n_en = n_en,
+                                      f_horizon = f_horizon)
+    Y_forecasts[:,0,:,:] = cur_forecast
+    
 model_da = LSTMDA(1) # model that will make predictions only one day into future 
-#model_forecast.load_weights(train_dir + '/lstm_da_trained_wgts/')
 model_da.load_weights(train_dir + '/lstm_da_trained_wgts/')
-#forecast_shape = (n_en, data['x_pred'].shape[1], 1) 
-#model_forecast.rnn_layer.build(input_shape=forecast_shape) # full timestep forecast 
 da_drivers = data['x_pred'][:,0,:].reshape((data['x_pred'].shape[0],1,data['x_pred'].shape[2])) # only single timestep for DA model
 da_shape = (n_en * len(model_locations), da_drivers.shape[1], da_drivers.shape[2])
 model_da.rnn_layer.build(input_shape=da_shape)
 
 # initialize the states with the previously trained states 
-#model_forecast.rnn_layer.reset_states(states=[h, c])
 model_da.rnn_layer.reset_states(states=[h, c])
-#make forecasts 
-#forecast_preds = model_forecast.predict(data['x_pred'], batch_size=n_en)
-#print(forecast_preds)
 # make predictions and store states for updating with EnKF 
 da_preds = model_da.predict(np.repeat(da_drivers, n_en, axis = 0), batch_size = n_en * n_segs) # make this dynamic batch size based on n_en
 cur_h, cur_c = model_da.rnn_layer.states 
@@ -121,6 +136,8 @@ if store_raw_states:
 
 
 # loop through forecast time steps and make forecasts & update with EnKF 
+if store_forecasts:
+    n_step = n_step - f_horizon
 for t in range(1, n_step):
     print(dates[t])
     
@@ -136,6 +153,18 @@ for t in range(1, n_step):
             n_en = n_en,
             cur_step = t-1)
     model_da.rnn_layer.reset_states(states=[new_h, new_c]) 
+    if store_forecasts:
+        model_forecast.rnn_layer.reset_states(states=[new_h, new_c])
+        start = t
+        stop = start+f_horizon
+        forecast_drivers = data['x_pred'][:,start:stop,:].reshape((data['x_pred'].shape[0], f_horizon, data['x_pred'].shape[2]))
+        forecast_preds = model_forecast.predict(np.repeat(forecast_drivers, n_en, axis = 0), batch_size = n_en * n_segs)
+        cur_forecast = get_forecast_preds(preds = forecast_preds,
+                                          n_segs = n_segs,
+                                          n_states_obs = n_states_obs, 
+                                          n_en = n_en,
+                                          f_horizon = f_horizon)
+        Y_forecasts[:,t,:,:] = cur_forecast
 
     # make predictions  and store states for updating with EnKF 
     cur_drivers = data['x_pred'][:,t,:].reshape((data['x_pred'].shape[0],1,data['x_pred'].shape[2]))
@@ -203,10 +232,11 @@ for t in range(1, n_step):
         print('updating with Kalman filter...') 
         Y = kalman_filter(Y, R, obs_mat, H, n_en, t)
 
-if store_raw_states: 
+if store_forecasts & store_raw_states:
     out = {
     "Y": Y,
     "Y_no_da": Y_no_da,
+    "Y_forecasts": Y_forecasts,
     "obs": obs_mat,
     "R": R,
     "Q": Q,
@@ -215,6 +245,18 @@ if store_raw_states:
     "model_locations": model_locations,
     "obs_orig": obs_mat_orig,
     }
+#if store_raw_states: 
+#    out = {
+#    "Y": Y,
+#    "Y_no_da": Y_no_da,
+#    "obs": obs_mat,
+#    "R": R,
+#    "Q": Q,
+#    "P": P,
+#    "dates": dates,
+#    "model_locations": model_locations,
+#    "obs_orig": obs_mat_orig,
+#    }
 else: 
     out = {
     "Y": Y,

@@ -27,6 +27,26 @@ def combine_lstm_states(
         
     return out
 
+def get_forecast_preds(
+        preds,
+        n_segs,
+        n_states_obs, 
+        n_en,
+        f_horizon
+):
+    '''
+    formatting LSTM forecasts for storing 
+    
+    '''
+    out = np.empty((n_states_obs, f_horizon, n_en))
+    
+    for i in range(n_segs):
+        cur_idxs = np.arange(0,n_en) + (i * n_en)
+        cur_preds = preds[cur_idxs,:,0]
+        out[i,:,:] = np.moveaxis(cur_preds, 0, 1)
+        
+    return out
+
 def get_updated_lstm_states(
         Y,
         n_segs,
@@ -70,6 +90,25 @@ def get_Y_vector(
     Y = np.empty((n_states_est, n_step, n_en))
     Y[:] = np.NaN
     return Y 
+
+def get_forecast_matrix(
+        n_states_obs,
+        n_step,
+        n_en,
+        f_horizon
+):
+    '''
+    matrix for holding state estimates of the forecast  
+
+    :param int n_states_obs: number of states we're observing (and making predictions for)
+    :param int n_step: number of model timesteps
+    :param int n_en: number of ensembles
+    :param f_horizon: number of days of the forecast 
+    '''
+    Y = np.empty((n_states_obs, n_step, f_horizon, n_en))
+    Y[:] = np.NaN
+    return Y 
+
 
 def get_obs_error_matrix(
         n_states_obs,
@@ -295,8 +334,9 @@ def add_process_error(
     '''
     # add error to unobserved values only (similar to inflation factor); 
     H_unobs_t = np.where(H[:,:,cur_step] == 0, 1, 0)
+    H_unobs_t = H_unobs_t[0,:].reshape((Y.shape[0],1))
     ens_spread = get_ens_deviate(Y, n_en, cur_step)
-    to_add = (ens_spread * 0.05) * H_unobs_t.T
+    to_add = (ens_spread * 0.05) * H_unobs_t
     
     for q in range(n_en):
         Y[0:Q.shape[1],cur_step,q] = Y[0:Q.shape[1],cur_step,q] + np.random.normal(np.repeat(0,Q.shape[1]), np.sqrt(np.abs(np.diag(Q[:,:,cur_step]))), Q.shape[1]) + to_add[0:Q.shape[1], q] 
