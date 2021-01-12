@@ -1,0 +1,31 @@
+target_default: 2_3_model_parameters
+
+packages:
+  - sf
+  - yaml
+  - dplyr
+  - scipiper
+  - ncdf4
+
+sources:
+  - utils/src/EnKF_functions.R
+  - 2_3_model_parameters/src/add_default_sntemp_params.R
+  - 4_pb_model/src/nc_utils.R
+
+targets:
+  2_3_model_parameters:
+    depends:
+
+# create ensemble of PRMS-SNTemp parameters to be run in 4_pb_model step
+  pb_model_params:
+    command: model_settings[[I('params')]]
+
+# create nc model output for storing PRMS-SNTemp variables
+  2_3_model_parameters/out/pb_model_params.nc.ind:
+    command: nc_create_pb_params(
+      n_en = n_en,
+      project_id = project_id,
+      vars = pb_model_params,
+      nc_name_out_ind = target_name,
+      model_run_loc = pb_model_run_loc)
+

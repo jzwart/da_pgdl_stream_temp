@@ -1,0 +1,16 @@
+version: 0.3.0
+name: 4_pb_model/out/pb_pretrain_model_output.nc.ind
+type: file
+hash: 1f9760af2a7bb0318f14980ae0e68a3d
+time: 2021-01-12 21:06:49 UTC
+depends:
+  1_model_fabric/out/model_locations.rds.ind: 3c5405828b27ae5a085f15398637a0b8
+  n_en: be3c152f6f6bcd5f85f9e4cba49b1e48
+  pb_dates: 4e34b699a22607058f33b1a73dfd4b64
+  project_id: 85837d50bb405331a97fbcef1374dd09
+  pb_model_states: 2c7f32f091b1d22d3bce953a26a06d5b
+fixed: c6f2a24ce94ec7685199ca7c921bcb24
+code:
+  functions:
+    nc_create_pb_pretrain_out: 227d4a4494d415a0ff59d8cada827b8c
+

@@ -6,26 +6,28 @@ nc_create_pb_pretrain_out = function(model_locations_ind,
                                      project_id,
                                      vars,
                                      nc_name_out_ind,
-                                     overwrite = T){
+                                     overwrite = T,
+                                     gd_config = 'lib/cfg/gd_config.yml'){
 
-  #Set dimensions
+  #Set dimensions; should always be [(forecast_issue_time), valid_time, (vertical dimension), location (or lon/ lat), ens];
+  #  for this project, we should have the dimensions of [valid_time, model_location, ens]
+  n_valid_times <- length(dates)
+  valid_times <- as.integer(seq(0, n_valid_times - 1, 1)) # days since dates[1]
+  model_locations <- as.integer(readRDS(sc_retrieve(model_locations_ind, remake_file = 'getters.yml'))$seg_id_nat) # PRMS-SNTemp seg_id_nat
   ens <- as.integer(seq(1, n_en, 1))
-  model_locations <- as.integer(readRDS(sc_retrieve(model_locations_ind, remake_file = 'getters.yml'))$model_idx)
-  n_dates <- length(dates)
-  timestep <- as.integer(seq(0, n_dates - 1, 1)) # days since dates[1]
 
+  valid_time_dim <- ncdim_def("valid_time",
+                              units = 'days',
+                              longname = sprintf('Days since %s', dates[1]),
+                              vals = valid_times)
+  loc_dim <- ncdim_def("model_idx",
+                       units = "",
+                       vals = model_locations,
+                       longname = 'PRMS-SNTemp stream segment model index')
   ens_dim <- ncdim_def("ens",
                        units = "",
                        vals = ens,
                        longname = 'ensemble member')
-  loc_dim <- ncdim_def("loc",
-                       units = "",
-                       vals = model_locations,
-                       longname = 'stream segment model index')
-  time_dim <- ncdim_def("timestep",
-                        units = '1 day',
-                        longname = sprintf('Days since %s', dates[1]),
-                        vals = timestep)
 
   dim_nchar <- ncdim_def("nchar",
                          units = "",
@@ -34,37 +36,38 @@ nc_create_pb_pretrain_out = function(model_locations_ind,
   ## quick check that units are valid
   udunits2::ud.is.parseable(ens_dim$units)
   udunits2::ud.is.parseable(loc_dim$units)
-  udunits2::ud.is.parseable(time_dim$units)
+  udunits2::ud.is.parseable(valid_time_dim$units)
   udunits2::ud.is.parseable(dim_nchar$units)
 
   #Define variables
   fillvalue <- 1e32
 
-  # use same dimensions as NOAA  [lon, lat, ensemble, date]
   def_list <- list()
   # loop through variables that we're predicting
   n_vars = length(vars$state)
   for(i in 1:n_vars){
     def_list[[i]] <- ncvar_def(name =  vars$state[i],
                                units = vars$units[i],
-                               dim = list(loc_dim, ens_dim, time_dim),
+                               dim = list(valid_time_dim, loc_dim, ens_dim),
                                missval = fillvalue,
                                longname = vars$longname[i],
                                prec = vars$prec[i])
   }
 
-  def_list[[n_vars + 1]] <- ncvar_def(name = 'issue_time',
+  def_list[[n_vars + 1]] <- ncvar_def(name = 'valid_times',
                                       units = 'datetime',
-                                      dim = list(dim_nchar, time_dim),
-                                      longname = 'Model issue time',
+                                      dim = list(dim_nchar, valid_time_dim),
+                                      longname = 'Model valid time',
                                       prec = 'char')
 
-  def_list[[n_vars + 2]] <- ncvar_def(name =  'data_assimilation',
-                                      units = 'logical',
-                                      dim = list(time_dim),
-                                      missval = fillvalue,
-                                      longname = 'EFI standard data assimilation code. 0 = no data',
-                                      prec = 'single')
+  # def_list[[n_vars + 2]] <- ncvar_def(name =  'data_assimilation',
+  #                                     units = 'logical',
+  #                                     dim = list(time_dim),
+  #                                     missval = fillvalue,
+  #                                     longname = 'EFI standard data assimilation code. 0 = no data',
+  #                                     prec = 'single')
+
+  nc_name_out = scipiper::as_data_file(nc_name_out_ind)
 
   if(file.exists(nc_name_out)){
     if(overwrite){
@@ -75,7 +78,7 @@ nc_create_pb_pretrain_out = function(model_locations_ind,
 
   ncvar_put(nc = ncout,
             varid = def_list[[n_vars + 1]],
-            vals = issue_dates)
+            vals = dates)
 
   #Global file metadata
   ncatt_put(nc = ncout,
@@ -85,10 +88,11 @@ nc_create_pb_pretrain_out = function(model_locations_ind,
             prec =  "text")
 
   nc_close(ncout)
+  gd_put(remote_ind = nc_name_out_ind, local_source = nc_name_out, config_file = gd_config)
 }
 
 
-#' insert forecast variables
+#' insert PRMS-SNTemp output
 #'
 nc_model_put = function(var_df,
                         var_name,
@@ -133,7 +137,7 @@ nc_model_put = function(var_df,
 }
 
 
-#' function for returning forecasted variables; returns tibble
+#' function for returning PRMS-SNTemp variables; returns tibble
 #'
 nc_model_get = function(nc_file,
                         var_name,
@@ -196,18 +200,19 @@ nc_model_get = function(nc_file,
 }
 
 
-
-nc_create_cal_params = function(n_en,
-                                forecast_project_id,
-                                vars, # parameter names
-                                nc_name_out,
-                                model_run_loc,
-                                param_default_file,
-                                n_segments = 456,
-                                n_hrus = 765,
-                                n_gwr = 765,
-                                n_ssr = 765,
-                                overwrite = T){
+# create nc file for storing PRMS-SNTemp parameters
+nc_create_pb_params = function(n_en,
+                               project_id,
+                               vars, # parameter names
+                               nc_name_out_ind,
+                               model_run_loc,
+                               param_default_file = 'control/delaware.control.par_name',
+                               n_segments = 456,
+                               n_hrus = 765,
+                               n_gwr = 765,
+                               n_ssr = 765,
+                               overwrite = T,
+                               gd_config = 'lib/cfg/gd_config.yml'){
 
   #Set dimensions
   ens <- as.integer(seq(1, n_en, 1))
@@ -301,6 +306,8 @@ nc_create_cal_params = function(n_en,
 
   }
 
+  nc_name_out = scipiper::as_data_file(nc_name_out_ind)
+
   if(file.exists(nc_name_out)){
     if(overwrite){
       file.remove(nc_name_out)
@@ -311,11 +318,12 @@ nc_create_cal_params = function(n_en,
   #Global file metadata
   ncatt_put(nc = ncout,
             varid = 0,
-            attname = "forecast_project_id",
-            attval = as.character(forecast_project_id),
+            attname = "project_id",
+            attval = as.character(project_id),
             prec =  "text")
 
   nc_close(ncout)
+  gd_put(remote_ind = nc_name_out_ind, local_source = nc_name_out, config_file = gd_config)
 }
 
 

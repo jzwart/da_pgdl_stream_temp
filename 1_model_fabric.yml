@@ -35,6 +35,10 @@ targets:
   cur_subbasin:
     command: model_settings[[I('subbasin_outlet')]]
 
+  # using manual seg_id_nat if we don't want to model entire subbasin
+  cur_seg_id_nat:
+    command: model_settings[[I('cur_seg_id_nat')]]
+
   # need to make sure that 20191002_Delaware_streamtemp folder is in project on
   #  local machine; this is on GD if not on local machine
   # within this function, moving model to temporary run location so that we can change parameters, etc.. while keeping
@@ -63,4 +67,5 @@ targets:
     command: get_model_locations(
       ind_file = target_name,
       subbasins_ind = '1_model_fabric/out/drb_subbasins.rds.ind',
-      subbasin_outlet_id = cur_subbasin)
+      seg_id_nats = cur_seg_id_nat,
+      model_run_loc = pb_model_run_loc)

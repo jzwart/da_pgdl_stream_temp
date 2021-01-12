@@ -16,9 +16,12 @@ pb_model_run_loc: '4_pb_model/tmp'
 
 subbasin_outlet: '4182'
 
+#lordville site is seg_id_nat == 1573; model_idx = 224; 1574 & 1575 are directly upstream of 1573 and 1577 is directly downstream of 1573
+cur_seg_id_nat: ['1573']
+
 project_id: 'da_pgdl_stream_temp_20201203'
 
-
+# model states
 states:
   state:
   - seg_tave_water
@@ -46,6 +49,18 @@ states:
   - degrees C
   - degrees C
   - degrees C
+  - meters
+  - cms
+  - cms
+  - cms
+  - meters
+  - cms
+  - cms
+  - W m^-2
+  - decimal fraction
+  - decimal fraction
+  - decimal fraction
+  - meters
   longname:
   - Computed daily mean stream temperature for each segment
   - Area-weighted average air temperature for each segment from HRUs contributing flow to the segment
@@ -56,9 +71,30 @@ states:
   - Area-weighted average rainfall for each segment from HRUs contributing flow to the segment
   - Streamflow leaving a segment
   - Sum of inflow from upstream segments
+  - Area-weighted average groundwater discharge for each segment from HRUs contributing flow to the segment
+  - Area-weighted average potential ET for each segment from HRUs contributing flow to the segment
+  - Area-weighted average surface runoff for each segment from HRUs contributing flow to the segment
+  - Area-weighted average interflow for each segment from HRUs contributing flow to the segment
+  - Area-weighted average solar radiation for each segment from HRUs contributing flow to the segment
+  - Area-weighted average relative humidity for each segment from HRUs contributing flow to the segment
+  - Area-weighted average shade fraction for each segment
+  - Area-weighted average cloud cover fraction for each segment from HRUs contributing flow to the segment
+  - Width of each segment
   prec:
   - float
   - float
+  - float
+  - float
+  - float
+  - float
+  - float
+  - double
+  - double
+  - double
+  - double
+  - double
+  - double
+  - double
   - float
   - float
   - float
@@ -82,3 +118,42 @@ drivers:
   - float
   - float
   - float
+
+# model parameters
+params:
+  param:
+  - ss_tau
+  - gw_tau
+  - albedo
+  - melt_temp
+  min:
+  - 1.0
+  - 10.0
+  - 0.0
+  - 0.0
+  max:
+  - 50.0
+  - 150.0
+  - 1.0
+  - 10.0
+  sd:
+  - 2.0
+  - 6.0
+  - .05
+  - 1.0
+  units:
+  - days
+  - days
+  - decimal fraction
+  - degrees C
+  longname:
+  - Average residence time of subsurface interflow
+  - Average residence time in groundwater flow
+  - Short-wave solar radiation reflected by streams
+  - Temperature at which snowmelt enters a stream
+  prec:
+  - integer
+  - integer
+  - float
+  - float
+

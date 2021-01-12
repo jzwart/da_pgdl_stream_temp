@@ -53,15 +53,26 @@ get_subbasins = function(ind_file,
 
 get_model_locations = function(ind_file,
                                subbasins_ind,
-                               subbasin_outlet_id,
+                               subbasin_outlet_id = NULL,
+                               seg_id_nats = NULL,
+                               model_run_loc,
+                               model_fabric_file = 'GIS/Segments_subset.shp',
                                gd_config = 'lib/cfg/gd_config.yml'){
   subbasins = readRDS(sc_retrieve(subbasins_ind, remake_file = 'getters.yml'))
 
-  cur_subbasin = subbasins[subbasin_outlet_id][[subbasin_outlet_id]]
+  if(!is.null(subbasin_outlet_id)){
+    cur_subbasin = subbasins[subbasin_outlet_id][[subbasin_outlet_id]]
+    model_locations = tibble(seg_id_nat = as.character(cur_subbasin$seg_id_nat),
+                             model_idx = as.character(cur_subbasin$model_idx)) %>%
+      arrange(as.numeric(model_idx))
+  }else if(!is.null(seg_id_nats)){
+    model_fabric = sf::read_sf(file.path(model_run_loc, model_fabric_file))
 
-  model_locations = tibble(seg_id_nat = as.character(cur_subbasin$seg_id_nat),
-                           model_idx = as.character(cur_subbasin$model_idx)) %>%
-    arrange(as.numeric(model_idx))
+    model_locations = tibble(seg_id_nat = as.character(model_fabric$seg_id_nat),
+                             model_idx = as.character(model_fabric$model_idx)) %>%
+      arrange(as.numeric(model_idx)) %>%
+      dplyr::filter(seg_id_nat %in% seg_id_nats)
+  }
 
   data_file = as_data_file(ind_file)
   saveRDS(object = model_locations, file = data_file)

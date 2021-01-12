@@ -5,8 +5,11 @@ packages:
   - yaml
   - dplyr
   - scipiper
+  - ncdf4
 
 sources:
+  - utils/src/EnKF_functions.R
+  - 4_pb_model/src/nc_utils.R
 
 targets:
   4_pb_model:
@@ -28,14 +31,17 @@ targets:
   project_id:
     command: model_settings[[I('project_id')]]
 
-# create nc model output
-  4_pb_model/out/model_output.nc.ind:
+  pb_model_states:
+    command: model_settings[[I('states')]]
+
+# create nc model output for storing PRMS-SNTemp variables
+  4_pb_model/out/pb_pretrain_model_output.nc.ind:
     command: nc_create_pb_pretrain_out(
       model_locations_ind = '1_model_fabric/out/model_locations.rds.ind',
       n_en = n_en,
       dates = pb_dates,
       project_id = project_id,
-      vars = sntemp_output_vars,
+      vars = pb_model_states,
       nc_name_out_ind = target_name)
 
 
