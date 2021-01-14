@@ -67,5 +67,5 @@ targets:
     command: get_model_locations(
       ind_file = target_name,
       subbasins_ind = '1_model_fabric/out/drb_subbasins.rds.ind',
-      seg_id_nats = cur_seg_id_nat,
+      seg_id_nats = I('all'),
       model_run_loc = pb_model_run_loc)

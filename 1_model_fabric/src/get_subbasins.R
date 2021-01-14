@@ -54,7 +54,7 @@ get_subbasins = function(ind_file,
 get_model_locations = function(ind_file,
                                subbasins_ind,
                                subbasin_outlet_id = NULL,
-                               seg_id_nats = NULL,
+                               seg_id_nats = NULL,  # 'all' will retrun all seg_id's
                                model_run_loc,
                                model_fabric_file = 'GIS/Segments_subset.shp',
                                gd_config = 'lib/cfg/gd_config.yml'){
@@ -68,10 +68,16 @@ get_model_locations = function(ind_file,
   }else if(!is.null(seg_id_nats)){
     model_fabric = sf::read_sf(file.path(model_run_loc, model_fabric_file))
 
-    model_locations = tibble(seg_id_nat = as.character(model_fabric$seg_id_nat),
-                             model_idx = as.character(model_fabric$model_idx)) %>%
-      arrange(as.numeric(model_idx)) %>%
-      dplyr::filter(seg_id_nat %in% seg_id_nats)
+    if(seg_id_nats == 'all'){
+      model_locations = tibble(seg_id_nat = as.character(model_fabric$seg_id_nat),
+                               model_idx = as.character(model_fabric$model_idx)) %>%
+        arrange(as.numeric(model_idx))
+    }else{
+      model_locations = tibble(seg_id_nat = as.character(model_fabric$seg_id_nat),
+                               model_idx = as.character(model_fabric$model_idx)) %>%
+        arrange(as.numeric(model_idx)) %>%
+        dplyr::filter(seg_id_nat %in% seg_id_nats)
+    }
   }
 
   data_file = as_data_file(ind_file)

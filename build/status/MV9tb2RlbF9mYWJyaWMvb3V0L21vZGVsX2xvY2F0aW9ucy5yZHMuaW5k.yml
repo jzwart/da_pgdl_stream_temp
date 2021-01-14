@@ -1,14 +1,13 @@
 version: 0.3.0
 name: 1_model_fabric/out/model_locations.rds.ind
 type: file
-hash: 3c5405828b27ae5a085f15398637a0b8
-time: 2021-01-12 20:00:57 UTC
+hash: 5250a2e6c295a4830e2da6419e2f69ed
+time: 2021-01-13 20:43:47 UTC
 depends:
   1_model_fabric/out/drb_subbasins.rds.ind: e2a8e8dae94b09d64e5c3d412d5004e1
-  cur_seg_id_nat: ebeea16c505397d5a8f20d54f1d0453e
   pb_model_run_loc: 28ffd3d47a6b9a187319fe51668c93f1
-fixed: bfd5c17af89e9cc81b7693f8c447386c
+fixed: b2993f0b99e8ad2fa348f526303b3148
 code:
   functions:
-    get_model_locations: a5add6ab88fb5c18be7234e49854ff9d
+    get_model_locations: 16ea5049f379f49b6d92a66af06cf9bb
 

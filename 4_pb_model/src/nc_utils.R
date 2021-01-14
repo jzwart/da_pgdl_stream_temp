@@ -20,10 +20,10 @@ nc_create_pb_pretrain_out = function(model_locations_ind,
                               units = 'days',
                               longname = sprintf('Days since %s', dates[1]),
                               vals = valid_times)
-  loc_dim <- ncdim_def("model_idx",
+  loc_dim <- ncdim_def("seg_id_nat",
                        units = "",
                        vals = model_locations,
-                       longname = 'PRMS-SNTemp stream segment model index')
+                       longname = 'PRMS-SNTemp stream segment id national')
   ens_dim <- ncdim_def("ens",
                        units = "",
                        vals = ens,
@@ -95,43 +95,52 @@ nc_create_pb_pretrain_out = function(model_locations_ind,
 #' insert PRMS-SNTemp output
 #'
 nc_model_put = function(var_df,
-                        var_name,
-                        en,
-                        issue_date,
-                        nc_name_out){
+                        var_names,
+                        ens, # current ensemble
+                        nc_file_ind){
 
-  ncout <- nc_open(nc_name_out, write = T)
+  ncout <- nc_open(sc_retrieve(nc_file_ind, remake_file = 'getters.yml'), write = T)
 
-  cur_var = ncout$var[[var_name]]
-  varsize = cur_var$varsize
-  issue_dates = ncvar_get(ncout, varid = 'issue_time')
-  # temp output dims [loc_dim, fdays_dim, ens_dim, time_dim]; position of dimensions following:
-  loc_pos = 1
-  fdays_pos = 2
-  ens_pos = 3
-  time_pos = 4
+  all_seg_id_nats = as.numeric(unique(var_df$seg_id_nat))
 
-  n_dims = cur_var$ndims
+  for(i in seq_along(var_names)){
+    print(sprintf('   storing %s', var_names[i]))
+    cur_var = ncout$var[[var_names[i]]]
+    varsize = cur_var$varsize
+    valid_dates = ncvar_get(ncout, varid = 'valid_times')
+    # temp output dims [time_dim, loc_dim, ens_dim]; position of dimensions following:
+    time_pos = 1
+    loc_pos = 2
+    ens_pos = 3
 
-  cur_issue_time = which(issue_date == issue_dates)
-  cur_en = en
+    n_dims = cur_var$ndims
 
-  n_fdays = varsize[fdays_pos]
-  n_en = varsize[ens_pos]
+    nc_seg_id_nats = ncout$dim$seg_id_nat$vals
 
-  start = rep(1, n_dims)
-  start[time_pos] = cur_issue_time
-  start[ens_pos] = cur_en
+    for(j in seq_along(nc_seg_id_nats)){
+      cur_seg_id_nat = which(nc_seg_id_nats[j] == nc_seg_id_nats)
+      cur_en = ens
 
-  count = varsize
-  count[time_pos] = 1 # adding only one issue time step
-  count[ens_pos] = 1 # adding output from only one ensemble
+      n_en = varsize[ens_pos]
 
-  ncvar_put(nc = ncout,
-            varid = var_name,
-            vals = var_df$water_temp,
-            start = start,
-            count = count)
+      start = rep(1, n_dims)
+      start[ens_pos] = cur_en
+      start[loc_pos] = cur_seg_id_nat
+
+      count = varsize
+      count[ens_pos] = 1 # adding output from only one ensemble
+      count[loc_pos] = 1 # adding output from only one location
+
+      cur_output = dplyr::filter(var_df, as.numeric(seg_id_nat) == nc_seg_id_nats[j]) %>%
+        dplyr::select(var_names[i]) %>% pull()
+
+      ncvar_put(nc = ncout,
+                varid = var_names[i],
+                vals = cur_output,
+                start = start,
+                count = count)
+    }
+  }
 
   nc_close(ncout)
 }
@@ -328,57 +337,60 @@ nc_create_pb_params = function(n_en,
 
 
 
-#' insert calibrated parameters
+#' insert parameters by drawing from distribution
 #'
-nc_cal_params_put = function(var_list,
-                             n_en,
-                             nc_name_out){
+nc_params_put = function(vars,
+                         n_en,
+                         nc_file_ind){
 
-  ncout <- nc_open(nc_name_out, write = T)
+  ncout <- nc_open(sc_retrieve(nc_file_ind, remake_file = 'getters.yml'), write = T)
 
-  param_names = names(var_list[[1]])
+  param_names = vars$param
 
   for(i in seq_along(param_names)){
 
     cur_var = ncout$var[[param_names[i]]]
     varsize = cur_var$varsize
-    # temp output dims [loc_dim, fdays_dim, ens_dim, time_dim]; position of dimensions following:
+    # dims [loc_dim, ens_dim, time_dim]; position of dimensions following:
     loc_pos = 1
     ens_pos = 2
     time_pos = 3
 
     n_dims = cur_var$ndims
 
-    for(n in seq_len(n_en)){
-      cur_en = n
+    cur_mean = vars$mean[i]
+    cur_sd = vars$sd[i]
+    cur_rparam = rnorm(n = n_en, mean = cur_mean, sd = cur_sd) # draw params from distribution; setting all segments to these param draws
+    # check to make sure params are within min-max range
+    cur_rparam = ifelse(cur_rparam < vars$min[i], vars$min[i], cur_rparam)
+    cur_rparam = ifelse(cur_rparam > vars$max[i], vars$max[i], cur_rparam)
+    cur_rparam = array(rep(cur_rparam, each =varsize[1]), dim = varsize)
 
-      start = rep(1, n_dims)
-      # start[time_pos] = # need to update if there are month based parameters
-      start[ens_pos] = cur_en
+    start = rep(1, n_dims)
+    # start[time_pos] = # need to update if there are month based parameters
 
-      count = varsize
-      # count[time_pos] = 1 # adding only one issue time step
-      count[ens_pos] = 1 # adding output from only one ensemble
+    count = varsize
+    # count[time_pos] = 1 # adding only one issue time step
 
-      ncvar_put(nc = ncout,
-                varid = param_names[i],
-                vals = var_list[[n]][[param_names[i]]],
-                start = start,
-                count = count)
-    }
+    ncvar_put(nc = ncout,
+              varid = param_names[i],
+              vals = cur_rparam,
+              start = start,
+              count = count)
+
   }
   nc_close(ncout)
 }
 
-#' function for returning calibrated parameters for forecasting; returns list
+#' function for returning parameters; returns list
 #'
-nc_cal_params_get = function(nc_file,
-                             param_names = NULL,
-                             model_idxs = NULL,
-                             ens = NULL,
-                             months = NULL){
+nc_params_get = function(nc_file_ind,
+                         param_names = NULL,
+                         model_idxs = NULL,
+                         ens = NULL,
+                         months = NULL){
 
-  nc = nc_open(nc_file)
+  nc = nc_open(sc_retrieve(nc_file_ind, remake_file = 'getters.yml'), write = T)
 
   if(!is.null(param_names)){
     param_names = param_names
@@ -386,7 +398,7 @@ nc_cal_params_get = function(nc_file,
     param_names = names(nc$var)
   }
 
-  # temp output dims [loc_dim, fdays_dim, ens_dim, time_dim]; position of dimensions following:
+  # dims [loc_dim, ens_dim, time_dim]; position of dimensions following:
   loc_pos = 1
   ens_pos = 2
   time_pos = 3

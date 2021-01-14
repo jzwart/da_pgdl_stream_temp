@@ -3,13 +3,20 @@ target_default: 4_pb_model
 packages:
   - sf
   - yaml
-  - dplyr
+  - tidyverse
   - scipiper
   - ncdf4
 
 sources:
   - utils/src/EnKF_functions.R
   - 4_pb_model/src/nc_utils.R
+  - 4_pb_model/src/run_sntemp.R
+  - 4_pb_model/src/update_sntemp.R
+  - 2_3_model_parameters/src/add_default_sntemp_params.R
+  - 4_pb_model/src/run_prms_sntemp_ens.R
+  - 4_pb_model/src/get_sntemp_values.R
+  - 4_pb_model/src/set_sntemp_output.R
+  - 4_pb_model/src/gather_sntemp_output.R
 
 targets:
   4_pb_model:
@@ -44,4 +51,14 @@ targets:
       vars = pb_model_states,
       nc_name_out_ind = target_name)
 
-
+# run PRMS-SNTemp n_en times and store output in nc file
+  run_prms_sntemp_ens:
+    command: run_prms_sntemp_ens(
+      nc_output_file_ind = '4_pb_model/out/pb_pretrain_model_output.nc.ind',
+      nc_param_file_ind = '2_3_model_parameters/out/pb_model_params.nc.ind',
+      start = pb_start,
+      stop = pb_stop,
+      n_en = n_en,
+      vars = pb_model_states,
+      model_run_loc = pb_model_run_loc,
+      orig_model_loc = orig_model_loc)

@@ -1,8 +1,8 @@
 # forecast configuration
 
-n_en: 20  # number of ensembles
-start: '2000-01-01'
-stop: '2010-01-01'
+n_en: 100  # number of ensembles
+start: '1980-01-01'
+stop: '2020-07-31'
 
 #  see 4_pb_model/notes/model_variable_description.txt for output variable details
 sntemp_output: ['seg_rain', 'seg_tave_air', 'seg_tave_water', 'seg_outflow', 'seg_tave_gw',
@@ -136,6 +136,11 @@ params:
   - 150.0
   - 1.0
   - 10.0
+  mean:
+  - 6.0
+  - 45.0
+  - 0.1
+  - 1.5
   sd:
   - 2.0
   - 6.0

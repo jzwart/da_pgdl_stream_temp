@@ -2,12 +2,10 @@
 #'
 #'
 #'
-gather_sntemp_output = function(ind_file,
-                                model_run_loc,
+gather_sntemp_output = function(model_run_loc,
                                 model_output_file,
                                 model_fabric_file,
-                                sntemp_vars,
-                                gd_config = 'lib/cfg/gd_config.yml'){
+                                sntemp_vars){
 
   stream_temp_intermediates = get_sntemp_intermediates(model_output_file = file.path(model_run_loc,
                                                                                      model_output_file),
@@ -51,10 +49,8 @@ gather_sntemp_output = function(ind_file,
   stream_temp_intermediates_wide = left_join(stream_temp_intermediates_wide, seg_slope, by = 'model_idx')
   stream_temp_intermediates_wide = left_join(stream_temp_intermediates_wide, seg_elev, by = 'model_idx')
 
-
-  out_file = as_data_file(ind_file)
-  feather::write_feather(x = stream_temp_intermediates_wide, path = out_file)
-  gd_put(ind_file)
+  return(stream_temp_intermediates_wide)
+  # feather::write_feather(x = stream_temp_intermediates_wide, path = out_file)
 }
 
 # gather output by subbasin

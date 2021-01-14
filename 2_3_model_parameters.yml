@@ -29,3 +29,13 @@ targets:
       nc_name_out_ind = target_name,
       model_run_loc = pb_model_run_loc)
 
+# fill in params by drawing from distribution
+  add_params:
+    command: nc_params_put(
+      vars = pb_model_params,
+      n_en = n_en,
+      nc_file_ind = '2_3_model_parameters/out/pb_model_params.nc.ind')
+
+# pull out params from nc
+#  nc_params_get(nc_file = '2_3_model_parameters/out/pb_model_params.nc', ens = 1) # pulls params for given ensemble
+

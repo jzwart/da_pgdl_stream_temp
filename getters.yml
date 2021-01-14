@@ -17,3 +17,11 @@ targets:
 
   1_model_fabric/out/model_locations.rds:
     command: gd_get(ind_file = '1_model_fabric/out/model_locations.rds.ind')
+
+  #### 2_3_model_paramaters ####
+  2_3_model_parameters/out/pb_model_params.nc:
+    command: gd_get(ind_file = '2_3_model_parameters/out/pb_model_params.nc.ind')
+
+  #### 4_pb_model ####
+  4_pb_model/out/pb_pretrain_model_output.nc:
+    command: gd_get(ind_file = '4_pb_model/out/pb_pretrain_model_output.nc.ind')
