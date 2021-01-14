@@ -148,19 +148,19 @@ class RGCN(tf.keras.Model):
         return y_out
 
 
-inputs = np.random.randn(2, 4, 4)
-adj_matrix = np.random.randn(2, 2)
-h_init = tf.convert_to_tensor(np.random.randn(2, 2))
-c_init = tf.convert_to_tensor(np.random.randn(2, 2))
+#inputs = np.random.randn(2, 4, 4)
+#adj_matrix = np.random.randn(2, 2)
+#h_init = tf.convert_to_tensor(np.random.randn(2, 2))
+#c_init = tf.convert_to_tensor(np.random.randn(2, 2))
 
-model = RGCN(2, adj_matrix)
-predictions = model(inputs, h_init=h_init, c_init=c_init)
-h = model.h_gr # h corresponding to the predictions
-c = model.c_gr # c corresponding to the predictions
+#model = RGCN(2, adj_matrix)
+#predictions = model(inputs, h_init=h_init, c_init=c_init)
+#h = model.h_gr # h corresponding to the predictions
+#c = model.c_gr # c corresponding to the predictions
 
-updated_h = h[:, -1, :] * 500 # update just the states of just the last time step
-updated_c = c[:, -1, :] * 500
-next_inputs = np.random.randn(2, 4, 4)
-next_predictions = model(inputs, h_init=updated_h, c_init=updated_c)
-new_h = model.h_gr
-new_c = model.c_gr
+#updated_h = h[:, -1, :] * 500 # update just the states of just the last time step
+#updated_c = c[:, -1, :] * 500
+#next_inputs = np.random.randn(2, 4, 4)
+#next_predictions = model(inputs, h_init=updated_h, c_init=updated_c)
+#new_h = model.h_gr
+#new_c = model.c_gr

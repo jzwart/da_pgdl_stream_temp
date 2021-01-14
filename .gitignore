@@ -17,6 +17,8 @@
 *.rds
 *.Rds
 *.nc
+*.npy
+*.npz
 
 prms_sntemp/*
 
