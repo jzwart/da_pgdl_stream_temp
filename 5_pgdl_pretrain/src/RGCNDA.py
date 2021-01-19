@@ -146,17 +146,23 @@ class RGCN(tf.keras.Model):
         self.c_gr = c_gr
         y_out = self.out_layer(h_gr)
         return y_out
+    
+    
 
 
 #inputs = np.random.randn(2, 4, 4)
+#y_obs = np.random.randn(2,4)
 #adj_matrix = np.random.randn(2, 2)
 #h_init = tf.convert_to_tensor(np.random.randn(2, 2))
 #c_init = tf.convert_to_tensor(np.random.randn(2, 2))
 
 #model = RGCN(2, adj_matrix)
+#model.compile(loss = rmse_masked, optimizer=tf.optimizers.Adam(learning_rate=0.3))
+#model.fit(x = inputs, y = y_obs, epochs = 2, batch_size = 2)
 #predictions = model(inputs, h_init=h_init, c_init=c_init)
 #h = model.h_gr # h corresponding to the predictions
 #c = model.c_gr # c corresponding to the predictions
+#h,c = model.states 
 
 #updated_h = h[:, -1, :] * 500 # update just the states of just the last time step
 #updated_c = c[:, -1, :] * 500
