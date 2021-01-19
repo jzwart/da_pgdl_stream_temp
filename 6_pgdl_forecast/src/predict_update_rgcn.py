@@ -10,7 +10,7 @@ from prep_da_rgcn_data import *
 
 train_dir = '5_pgdl_pretrain/out'
 process_error = True # T/F add process error during DA step 
-store_raw_states = True # T/F store the LSTM states without data assimilation 
+store_raw_states = False # T/F store the LSTM states without data assimilation 
 store_forecasts = False # T/F store predictions that are in the future 
 f_horizon = 3 # forecast horizon in days (how many days into the future to make predictions)
 beta = 0.5 # weighting for how much uncertainty should go to observed vs. 
@@ -22,8 +22,8 @@ alpha = 0.8  # weight for how quickly the process error is allowed to
                # based on current innovations)
 seg_ids = [1573, 1577] # needs to be a list of seg_ids (even if one segment); 
 seg_ids.sort() # these should be sorted numerically!! 
-n_epochs = 50 
-n_en = 2 # number of ensembles 
+n_epochs = 100 
+n_en = 30 # number of ensembles 
 hidden_layers = 2
 
 prep_data_rgcn_da(
@@ -55,15 +55,11 @@ dist_mat = data['distance_matrix']
 n_batch, seq_len, n_feat = data['x_trn'].shape
 rgcn = RGCN(hidden_layers, dist_mat)
 rgcn.rnn_layer.build(input_shape=data['x_trn'].shape)
-rgcn.compile(loss=rmse_masked, optimizer=tf.optimizers.Adam(learning_rate=0.3))
+rgcn.compile(loss=rmse_masked, optimizer=tf.optimizers.Adam(learning_rate=0.3), run_eagerly=True) # need the run eagerly to get out the states (might make this run slower so we should think about not doing this and instead trianing & then predicting on entire train input data to get out states from last time step)
 rgcn.fit(x=data['x_trn'], y=data['y_trn'], epochs=n_epochs, batch_size=n_batch)
 rgcn.save_weights('5_pgdl_pretrain/out/rgcn_da_trained_wgts/')
 h = rgcn.h_gr # h corresponding to the predictions
 c = rgcn.c_gr # c corresponding to the predictions
-
-
-######### stuck here ; can't extract states # 
-
 
 np.save('5_pgdl_pretrain/out/h_gr.npy', h.numpy())
 np.save('5_pgdl_pretrain/out/c_gr.npy', c.numpy())
@@ -71,6 +67,9 @@ np.save('5_pgdl_pretrain/out/c_gr.npy', c.numpy())
 # load LSTM states from trained model 
 h = np.load('5_pgdl_pretrain/out/h_gr.npy', allow_pickle=True)
 c = np.load('5_pgdl_pretrain/out/c_gr.npy', allow_pickle=True)
+# only need last timestep 
+h = h[:,-1,:]
+c = c[:,-1,:]
 
 n_states_est = 1 * len(model_locations) + (hidden_layers * 2) * len(model_locations) # number of states we're estimating (predictions, h, c) for x segments
 
@@ -122,20 +121,23 @@ da_shape = (n_en * len(model_locations), da_drivers.shape[1], da_drivers.shape[2
 rgcn_da.rnn_layer.build(input_shape=da_shape)
 
 # initialize the states with the previously trained states 
-rgcn_da.rnn_layer.reset_states(states=[h, c])
+#rgcn_da.rnn_layer.reset_states(states=[h, c])
 # make predictions and store states for updating with EnKF 
-da_preds = rgcn_da.predict(np.repeat(da_drivers, n_en, axis = 0), batch_size = n_en * n_segs) # make this dynamic batch size based on n_en
+#da_preds = rgcn_da.predict(np.repeat(da_drivers, n_en, axis = 0), batch_size = n_en * n_segs) # make this dynamic batch size based on n_en
+da_preds = rgcn_da(np.repeat(da_drivers, n_en, axis = 0), h_init = h, c_init = c)
+da_preds = da_preds.numpy() 
 cur_h = rgcn_da.h_gr
 cur_c = rgcn_da.c_gr
 #print(da_preds)
 
-cur_states = combine_lstm_states(
+cur_states = combine_rgcn_states(
         preds = da_preds[:,0,:], 
         h = cur_h.numpy(), 
         c = cur_c.numpy(),
         n_segs = n_segs,
         n_states_est = n_states_est,
-        n_en = n_en)
+        n_en = n_en,
+        hidden_layers = hidden_layers)
 Y[:,0,:] = cur_states # storing in Y for EnKF updating 
 if store_raw_states: 
     Y_no_da[:,0,:] = cur_states 
@@ -185,12 +187,13 @@ for t in range(1, n_step):
     #    Y[2,t-1,:] = np.random.normal(40, 2, n_en)
     
     # update lstm with h & c states stored in Y from previous timestep 
-    new_h, new_c = get_updated_lstm_states(
+    
+    new_h, new_c = get_updated_rgcn_states(
             Y = Y,
             n_segs = n_segs,
             n_en = n_en,
+            hidden_layers = hidden_layers, 
             cur_step = t-1)
-    model_da.rnn_layer.reset_states(states=[new_h, new_c]) 
     if store_forecasts:
         model_forecast.rnn_layer.reset_states(states=[new_h, new_c])
         start = t
@@ -206,17 +209,19 @@ for t in range(1, n_step):
 
     # make predictions  and store states for updating with EnKF 
     cur_drivers = data['x_pred'][:,t,:].reshape((data['x_pred'].shape[0],1,data['x_pred'].shape[2]))
-    cur_preds = model_da.predict(np.repeat(cur_drivers,n_en, axis =0), batch_size = n_en * n_segs)
-
-    cur_h, cur_c = model_da.rnn_layer.states 
+    cur_preds = rgcn_da(np.repeat(cur_drivers, n_en, axis = 0), h_init = h, c_init = c)
+    cur_preds = cur_preds.numpy() 
+    cur_h = rgcn_da.h_gr
+    cur_c = rgcn_da.c_gr
     
-    cur_states = combine_lstm_states(
+    cur_states = combine_rgcn_states(
                 cur_preds[:,0,:],
                 cur_h.numpy(), 
                 cur_c.numpy(),
                 n_segs,
                 n_states_est,
-                n_en)
+                n_en,
+                hidden_layers = hidden_layers)
     Y[:,t,:] = cur_states # storing in Y for EnKF updating 
     
     if process_error: 
@@ -307,6 +312,6 @@ else:
     "obs_orig": obs_mat_orig,
     }
 
-np.savez('5_pgdl_pretrain/out/simple_lstm_da_50epoch.npz', **out)
+np.savez('5_pgdl_pretrain/out/simple_rgcn_da_50epoch.npz', **out)
 
 
