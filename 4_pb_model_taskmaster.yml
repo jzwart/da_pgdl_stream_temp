@@ -1,0 +1,58 @@
+target_default: 4_pb_model_taskmaster
+
+packages:
+  - sf
+  - yaml
+  - tidyverse
+  - scipiper
+  - ncdf4
+
+sources:
+  - utils/src/EnKF_functions.R
+  - 4_pb_model/src/nc_utils.R
+  - 4_pb_model/src/run_sntemp.R
+  - 4_pb_model/src/update_sntemp.R
+  - 2_3_model_parameters/src/add_default_sntemp_params.R
+  - 4_pb_model/src/run_prms_sntemp_ens.R
+  - 4_pb_model/src/get_sntemp_values.R
+  - 4_pb_model/src/set_sntemp_output.R
+  - 4_pb_model/src/gather_sntemp_output.R
+
+targets:
+  4_pb_model_taskmaster:
+    depends:
+
+# make task list
+  pb_model_df:
+    command: list_tasks()
+
+  pb_model_plan:
+    command: plan_pb_model()
+
+  4_pb_model_tasks.yml:
+    command: create_pb_model_makefile(
+      makefile = target_name,
+      task_plan=forecast_plan,
+      remake_file = '4_pb_model.yml')
+
+# create nc model output for storing PRMS-SNTemp variables
+  4_pb_model/out/pb_pretrain_model_output.nc.ind:
+    command: nc_create_pb_pretrain_out(
+      model_locations_ind = '1_model_fabric/out/model_locations.rds.ind',
+      n_en = n_en,
+      dates = pb_dates,
+      project_id = project_id,
+      vars = pb_model_states,
+      nc_name_out_ind = target_name)
+
+# run PRMS-SNTemp n_en times and store output in nc file
+  run_prms_sntemp_ens:
+    command: run_prms_sntemp_ens(
+      nc_output_file_ind = '4_pb_model/out/pb_pretrain_model_output.nc.ind',
+      nc_param_file_ind = '2_3_model_parameters/out/pb_model_params.nc.ind',
+      start = pb_start,
+      stop = pb_stop,
+      n_en = n_en,
+      vars = pb_model_states,
+      model_run_loc = pb_model_run_loc,
+      orig_model_loc = orig_model_loc)
