@@ -139,8 +139,11 @@ def prep_data_rgcn_da(
     for n in range(n_en):
         cur_start = n * n_segs
         cur_end = cur_start + n_segs
-        dist_mat_out[cur_start:cur_end, cur_start:cur_end] = dist_mat
-        rowcolnames_out[cur_start:cur_end] = np.array(seg_idxs).reshape((len(seg_id)))
+        h_fill = np.tile(dist_mat, n+1) # horizontal fill 
+        v_fill = np.tile(dist_mat, ((n+1), 1)) # vertical fill 
+        dist_mat_out[cur_start:cur_end, 0:cur_end] = h_fill 
+        dist_mat_out[0:cur_end, cur_start:cur_end] = v_fill
+        rowcolnames_out[cur_start:cur_end] = rowcolnames[seg_idxs_list].astype(int).reshape((len(seg_id)))
     
     dist_mat_out = prep_adj_matrix(mat = dist_mat_out, rowcolnames= rowcolnames_out)
     
@@ -168,6 +171,7 @@ def sort_dist_matrix(mat, row_col_names):
     df = pd.DataFrame(mat, columns=row_col_names, index=row_col_names)
     df = df.sort_index(axis=0)
     df = df.sort_index(axis=1)
+    df = df.to_numpy()
     return df
 
 

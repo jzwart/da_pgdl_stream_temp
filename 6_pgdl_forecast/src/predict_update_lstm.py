@@ -2,11 +2,13 @@ import numpy as np
 import tensorflow as tf
 import sys
 sys.path.insert(1, '5_pgdl_pretrain/src')
-from LSTMDA import LSTMDA
+from LSTMDA import *
+from prep_da_lstm_data import * 
 sys.path.insert(1, 'utils/src')
 from EnKF_functions import * 
 
 train_dir = '5_pgdl_pretrain/out'
+pre_train = True # T/F if to pre-train with SNTemp output 
 process_error = True # T/F add process error during DA step 
 store_raw_states = True # T/F store the LSTM states without data assimilation 
 store_forecasts = True # T/F store predictions that are in the future 
@@ -18,28 +20,86 @@ beta = 0.5 # weighting for how much uncertainty should go to observed vs.
 alpha = 0.8  # weight for how quickly the process error is allowed to 
                # adapt (low alpha quickly changes process error 
                # based on current innovations)
+n_en = 100 
+n_epochs_pre = 100 # number of epochs for pretraining 
+n_epochs_fine = 100 # number of epochs for finetuning 
+weights_dir = '5_pgdl_pretrain/out/lstm_da_trained_wgts/'
+out_h_file = '5_pgdl_pretrain/out/h.npy' 
+out_c_file = '5_pgdl_pretrain/out/c.npy' 
+
+seg_ids = [1573] # needs to be a list of seg_ids (even if one segment)
+
+prep_data_lstm_da(
+    obs_temp_file = "5_pgdl_pretrain/in/obs_temp_full",
+    driver_file = "5_pgdl_pretrain/in/uncal_sntemp_input_output",
+    seg_id = seg_ids,
+    start_date_trn = "2000-06-01",
+    end_date_trn = "2012-06-01",
+    start_date_pred = "2012-06-02",
+    end_date_pred = "2013-06-02",
+    x_vars=["seg_tave_air"],
+    y_vars=["seg_tave_water"],
+    obs_vars = ["temp_c"],
+    out_file="5_pgdl_pretrain/in/lstm_da_data_just_air_temp.npz",
+    n_en = n_en
+)
 
 # load in the data 
 data = np.load('5_pgdl_pretrain/in/lstm_da_data_just_air_temp.npz')
 
+if pre_train:
+    n_batch, seq_len, n_feat = data['x_trn'].shape
+    pretrain_model = LSTMDA(1)
+    pretrain_model(data['x_trn'])
+
+    pretrain_model.compile(loss=rmse_masked, optimizer=tf.optimizers.Adam(learning_rate=0.3))
+    pretrain_model.fit(x=data['x_trn'], y=data['y_trn'], epochs=n_epochs_pre, batch_size=n_batch)
+
+    pretrain_model.save_weights(weights_dir)
+    
+    fine_tune_model = LSTMDA(1) 
+    fine_tune_model.load_weights(weights_dir) 
+    fine_tune_model.rnn_layer.build(input_shape=data['x_trn'].shape)
+    
+    fine_tune_model.compile(loss=rmse_masked, optimizer=tf.optimizers.Adam(learning_rate=0.3))
+    fine_tune_model.fit(x=data['x_trn'], y=data['obs_trn'], epochs=n_epochs_fine, batch_size=n_batch)
+    
+    fine_tune_model.save_weights(weights_dir)
+
+    h, c = fine_tune_model.rnn_layer.states
+    np.save(out_h_file, h.numpy())
+    np.save(out_c_file, c.numpy())
+else:
+    fine_tune_model = LSTMDA(1) 
+    fine_tune_model(data['x_trn']) 
+    
+    fine_tune_model.compile(loss=rmse_masked, optimizer=tf.optimizers.Adam(learning_rate=0.3))
+    fine_tune_model.fit(x=data['x_trn'], y=data['obs_trn'], epochs=n_epochs_fine, batch_size=n_batch)
+    
+    fine_tune_model.save_weights(weights_dir)
+
+    h, c = fine_tune_model.rnn_layer.states
+    np.save(out_h_file, h.numpy())
+    np.save(out_c_file, c.numpy())
+
+
 # get model prediction parameters for setting up EnKF matrices 
-obs_array = data['y_pred']
+obs_array = data['obs_pred']
 n_states_obs, n_step, tmp = obs_array.shape
 model_locations = data['model_locations'] # seg_id_nat of the stream segments 
 n_segs = len(model_locations)
-n_en = 100 # number of ensembles 
 state_sd = np.repeat(1, n_states_obs) # uncertainty around observations 
 dates = data['dates_pred']
 
 # load LSTM states from trained model 
-h = np.load(train_dir + '/h.npy', allow_pickle=True)
-c = np.load(train_dir + '/c.npy', allow_pickle=True)
+h = np.load(out_h_file, allow_pickle=True)
+c = np.load(out_c_file, allow_pickle=True)
 
 n_states_est = 3 * len(model_locations) # number of states we're estimating (predictions, h, c) for x segments
 
 # withholding some observations for testing assimilation effectiveness 
 obs_mat_orig = get_obs_matrix(obs_array, model_locations, n_step, n_states_obs)
-obs_array[0,19:34,0] = np.nan
+#obs_array[0,19:34,0] = np.nan
 #obs_array[0,:,:] = np.nan
 
 # set up EnKF matrices 
@@ -65,7 +125,7 @@ if store_forecasts:
 # define LSTM model using previously trained model; use one model for making forecasts many days into the future and one for updating states (will only make predictions 1 timestep at a time) 
 if store_forecasts:
     model_forecast = LSTMDA(1) # model that will make forecasts many days into future 
-    model_forecast.load_weights(train_dir + '/lstm_da_trained_wgts/')
+    model_forecast.load_weights(weights_dir)
     forecast_shape = (n_en * len(model_locations), f_horizon, data['x_pred'].shape[2]) 
     model_forecast.rnn_layer.build(input_shape=forecast_shape) # full timestep forecast 
     model_forecast.rnn_layer.reset_states(states=[h, c])
@@ -79,7 +139,7 @@ if store_forecasts:
     Y_forecasts[:,0,:,:] = cur_forecast
     
 model_da = LSTMDA(1) # model that will make predictions only one day into future 
-model_da.load_weights(train_dir + '/lstm_da_trained_wgts/')
+model_da.load_weights(weights_dir)
 da_drivers = data['x_pred'][:,0,:].reshape((data['x_pred'].shape[0],1,data['x_pred'].shape[2])) # only single timestep for DA model
 da_shape = (n_en * len(model_locations), da_drivers.shape[1], da_drivers.shape[2])
 model_da.rnn_layer.build(input_shape=da_shape)
@@ -269,6 +329,7 @@ else:
     "obs_orig": obs_mat_orig,
     }
 
-np.savez('5_pgdl_pretrain/out/simple_lstm_da_50epoch.npz', **out)
+out_file = '5_pgdl_pretrain/out/simple_lstm_da_%sepoch_%sbeta_%salpha.npz' % (n_epochs_fine, beta, alpha)
+np.savez(out_file, **out)
 
 

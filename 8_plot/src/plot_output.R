@@ -4,7 +4,7 @@ library(ggplot2)
 library(reticulate)
 np = import('numpy')
 
-d = np$load('5_pgdl_pretrain/out/simple_lstm_dl_da_iter.npz')
+d = np$load('5_pgdl_pretrain/out/simple_lstm_da_100epoch_0.5beta_0.8alpha.npz')
 
 obs = d$f[['obs']] #[,,1:10]
 obs_withheld = d$f[['obs_orig']] # if we withhold observations from DA steps
@@ -21,7 +21,7 @@ n_segs = length(cur_model_idxs)
 Y_no_da = d$f[['Y_no_da']]
 Y_forecast = d$f[['Y_forecasts']]
 f_horizon = 3 # make dynamic from output
-true = d$f[['true']]
+#true = d$f[['true']]
 
 add_text <- function(text, location="topright"){
   legend(location,legend=text, bty ="n", pch=NA)
@@ -33,41 +33,40 @@ for(j in cur_model_idxs){
   # obs[,1,1]
   matrix_loc = which(cur_model_idxs == j)
   mean_pred = rowMeans(Y[matrix_loc,,])
-  #mean_pred_no_da = rowMeans(Y_no_da[matrix_loc,,]) # colMeans(preds_no_da[,,matrix_loc])
+  mean_pred_no_da = rowMeans(Y_no_da[matrix_loc,,]) # colMeans(preds_no_da[,,matrix_loc])
 
   temp_rmse = round(sqrt(mean((mean_pred - obs[matrix_loc,1,])^2, na.rm = T)), 2)
-  #temp_rmse_no_da = round(sqrt(mean((mean_pred_no_da - obs[matrix_loc,1,])^2, na.rm = T)), 2)
+  temp_rmse_no_da = round(sqrt(mean((mean_pred_no_da - obs[matrix_loc,1,])^2, na.rm = T)), 2)
 
   windows(width = 14, height = 10)
-  #par(mar = c(3,6,4,3), mfrow = c(2,1))
+  par(mar = c(3,6,4,3), mfrow = c(2,1))
   plot(Y[matrix_loc,,1] ~ dates, type = 'l',
        ylab = 'Stream Temp (C)', xlab = '', lty=0,
        ylim = c(0,25), #ylim =range(c(Y[matrix_loc,,], obs[matrix_loc,1,]), na.rm = T), #, Y_no_assim[matrix_loc,,])
        cex.axis = 2, cex.lab =2, main = sprintf('model idx %s', j))
-  #add_text(sprintf('RMSE DA: %s \nRMSE no DA: %s', temp_rmse, temp_rmse_no_da), location = 'bottomleft')
+  add_text(sprintf('RMSE DA: %s \nRMSE no DA: %s', temp_rmse, temp_rmse_no_da), location = 'bottomleft')
   points(obs[matrix_loc,1,] ~ dates, col = 'red', pch = 16, cex = 1.2)
   arrows(dates, obs[matrix_loc,1,]+R[matrix_loc,matrix_loc,], dates, obs[matrix_loc,1,]-R[matrix_loc,matrix_loc,],
          angle = 90, length = .05, col = 'red', code = 3)
   for(i in 1:n_en){
-    #lines(Y_no_da[matrix_loc,,i] ~ dates, col = alpha('blue', .5))
+    lines(Y_no_da[matrix_loc,,i] ~ dates, col = alpha('blue', .5))
     lines(Y[matrix_loc,,i] ~ dates, col = alpha('grey', .5))
   }
   lines(mean_pred ~ dates, lwd = 2, col = alpha('black', .5))
-  lines(true[1,,1]~dates, lwd = 2, col = alpha('blue', .5))
-  #lines(mean_pred_no_da ~ dates, lwd = 2, col = alpha('blue', .5))
+  lines(mean_pred_no_da ~ dates, lwd = 2, col = alpha('blue', .5))
   # abline(v = dates[30])
 
-  #plot(Q[matrix_loc,matrix_loc,] ~ dates, type = 'l',
-   #    ylab = 'Process Error', xlab = '', lty=3,lwd = 3,
-    #   cex.axis = 2, cex.lab =2)
-  true_rmse = round(sqrt(mean((mean_pred - true[1,,1])^2, na.rm = T)), 2)
-  obs_rmse = round(sqrt(mean((obs[matrix_loc,1,] - true[1,,1])^2, na.rm = T)), 2)
-
-  windows()
-  plot(mean_pred ~ true[1,,1], pch = 16, ylab = 'Predicted or Observed State', xlab = 'True State')
-  points(obs[matrix_loc,1,] ~ true[1,,1], pch = 16, col = alpha('red', .5))
-  add_text(sprintf('RMSE Preds-True: %s \nRMSE Obs-True: %s \nRMSE Preds-Obs: %s', true_rmse, obs_rmse, temp_rmse), location = 'topleft')
-  abline(0,1)
+  plot(Q[matrix_loc,matrix_loc,] ~ dates, type = 'l',
+       ylab = 'Process Error', xlab = '', lty=3,lwd = 3,
+       cex.axis = 2, cex.lab =2)
+  # true_rmse = round(sqrt(mean((mean_pred - true[1,,1])^2, na.rm = T)), 2)
+  # obs_rmse = round(sqrt(mean((obs[matrix_loc,1,] - true[1,,1])^2, na.rm = T)), 2)
+  #
+  # windows()
+  # plot(mean_pred ~ true[1,,1], pch = 16, ylab = 'Predicted or Observed State', xlab = 'True State')
+  # points(obs[matrix_loc,1,] ~ true[1,,1], pch = 16, col = alpha('red', .5))
+  # add_text(sprintf('RMSE Preds-True: %s \nRMSE Obs-True: %s \nRMSE Preds-Obs: %s', true_rmse, obs_rmse, temp_rmse), location = 'topleft')
+  # abline(0,1)
 }
 
 
@@ -99,7 +98,7 @@ for(j in cur_model_idxs){
   windows(width = 14, height = 10)
   par(mar = c(3,6,4,3), mfrow = c(2,1))
   plot(Y[matrix_loc_h,,1] ~ dates, type = 'l',
-       ylab = 'h', xlab = '', lty=0, ylim =range(c(Y[matrix_loc_h,,], na.rm = T)), #, Y_no_assim[matrix_loc,,])
+       ylab = 'h', xlab = '', lty=0, ylim =range(c(Y[matrix_loc_h,,]), na.rm = T), #, Y_no_assim[matrix_loc,,])
        cex.axis = 2, cex.lab =2, main = sprintf('model idx %s', j))
   for(i in 1:n_en){
     lines(Y[matrix_loc_h,,i] ~ dates, col = alpha('grey', .5))
@@ -109,7 +108,7 @@ for(j in cur_model_idxs){
   lines(mean_h_no_da ~ dates, lwd = 2, col = alpha('blue', .9))
 
   plot(Y[matrix_loc_c,,1] ~ dates, type = 'l',
-       ylab = 'c', xlab = '', lty=0, ylim =range(c(Y[matrix_loc_c,,], na.rm = T)), #, Y_no_assim[matrix_loc,,])
+       ylab = 'c', xlab = '', lty=0, ylim =range(c(Y[matrix_loc_c,,]), na.rm = T), #, Y_no_assim[matrix_loc,,])
        cex.axis = 2, cex.lab =2, main = sprintf('model idx %s', j))
   for(i in 1:n_en){
     lines(Y[matrix_loc_c,,i] ~ dates, col = alpha('grey', .5))
@@ -162,11 +161,11 @@ for(j in cur_model_idxs){
   windows(width = 14, height = 10)
   par(mar = c(6,6,4,3), mfrow = c(1,2))
   plot(h_diff ~ lstm_error,
-       ylab = 'h adjustment', xlab = 'LSTM error', lty=0, ylim = range(h_diff[!is.na(lstm_error)]),
+       ylab = 'h adjustment', xlab = 'LSTM error', lty=0, ylim = range(h_diff[!is.na(lstm_error)], na.rm = T),
        cex.axis = 2, cex.lab =2, main = sprintf('model idx %s', j))
   abline(v = 0, h = 0, lty = 2)
   plot(c_diff ~ lstm_error,
-       ylab = 'c adjustment', xlab = 'LSTM error', lty=0, ylim = range(c_diff[!is.na(lstm_error)]),
+       ylab = 'c adjustment', xlab = 'LSTM error', lty=0, ylim = range(c_diff[!is.na(lstm_error)], na.rm = T),
        cex.axis = 2, cex.lab =2, main = sprintf('model idx %s', j))
   abline(v = 0, h = 0, lty = 2)
 
@@ -176,7 +175,7 @@ for(j in cur_model_idxs){
 median_P = matrix(nrow = dim(P)[1], ncol = dim(P)[2])
 for(i in 1:nrow(median_P)){
   for(j in 1:ncol(median_P)){
-    median_P[i,j] = median(P[i,j,])
+    median_P[i,j] = median(P[i,j,], na.rm = T)
   }
 }
 

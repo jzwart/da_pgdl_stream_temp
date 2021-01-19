@@ -13,7 +13,7 @@ run_sntemp = function(start,
                       spinup_days = 730,
                       restart = F,
                       save_ic = T, # save a restart file T/F
-                      model_run_loc = '4_model/tmp/',
+                      model_run_loc,
                       control_file = 'delaware.control',
                       precip_file = './input/prcp.cbh',
                       tmax_file = './input/tmax.cbh',
@@ -121,7 +121,8 @@ run_sntemp = function(start,
   setwd(current.wd) # set wd back to root of project
 }
 
-run_sntemp_spinup = function(spinup_days, start,
+run_sntemp_spinup = function(spinup_days,
+                             start,
                              model_run_loc,
                              control_file,
                              precip_file,

@@ -23,6 +23,7 @@ targets:
 # create nc model output for storing PRMS-SNTemp variables
   2_3_model_parameters/out/pb_model_params.nc.ind:
     command: nc_create_pb_params(
+      model_locations_ind = '1_model_fabric/out/model_locations.rds.ind',
       n_en = n_en,
       project_id = project_id,
       vars = pb_model_params,

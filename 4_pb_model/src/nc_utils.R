@@ -134,6 +134,9 @@ nc_model_put = function(var_df,
       cur_output = dplyr::filter(var_df, as.numeric(seg_id_nat) == nc_seg_id_nats[j]) %>%
         dplyr::select(var_names[i]) %>% pull()
 
+      # qa / qc values
+
+
       ncvar_put(nc = ncout,
                 varid = var_names[i],
                 vals = cur_output,
@@ -210,7 +213,8 @@ nc_model_get = function(nc_file,
 
 
 # create nc file for storing PRMS-SNTemp parameters
-nc_create_pb_params = function(n_en,
+nc_create_pb_params = function(model_locations_ind,
+                               n_en,
                                project_id,
                                vars, # parameter names
                                nc_name_out_ind,
@@ -222,6 +226,8 @@ nc_create_pb_params = function(n_en,
                                n_ssr = 765,
                                overwrite = T,
                                gd_config = 'lib/cfg/gd_config.yml'){
+
+  model_locations <- as.integer(readRDS(sc_retrieve(model_locations_ind, remake_file = 'getters.yml'))$seg_id_nat) # PRMS-SNTemp seg_id_nat
 
   #Set dimensions
   ens <- as.integer(seq(1, n_en, 1))

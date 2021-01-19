@@ -10,7 +10,7 @@ from prep_da_rgcn_data import *
 
 train_dir = '5_pgdl_pretrain/out'
 process_error = True # T/F add process error during DA step 
-store_raw_states = False # T/F store the LSTM states without data assimilation 
+store_raw_states = True # T/F store the LSTM states without data assimilation 
 store_forecasts = False # T/F store predictions that are in the future 
 f_horizon = 3 # forecast horizon in days (how many days into the future to make predictions)
 beta = 0.5 # weighting for how much uncertainty should go to observed vs. 
@@ -20,7 +20,7 @@ beta = 0.5 # weighting for how much uncertainty should go to observed vs.
 alpha = 0.8  # weight for how quickly the process error is allowed to 
                # adapt (low alpha quickly changes process error 
                # based on current innovations)
-seg_ids = [1573, 1577] # needs to be a list of seg_ids (even if one segment); 
+seg_ids = [1573, 1575, 1577] # needs to be a list of seg_ids (even if one segment); 
 seg_ids.sort() # these should be sorted numerically!! 
 n_epochs = 100 
 n_en = 30 # number of ensembles 
@@ -152,27 +152,27 @@ if store_raw_states:
     for t in range(1, n_step):
         print(dates[t])
         # update lstm with h & c states stored in Y from previous timestep 
-        new_h, new_c = get_updated_lstm_states(
-            Y = Y_no_da,
+        new_h, new_c = get_updated_rgcn_states(
+            Y = Y,
             n_segs = n_segs,
             n_en = n_en,
+            hidden_layers = hidden_layers, 
             cur_step = t-1)
-        model_da.rnn_layer.reset_states(states=[new_h, new_c]) 
-    
-        # make predictions  and store states 
         cur_drivers = data['x_pred'][:,t,:].reshape((data['x_pred'].shape[0],1,data['x_pred'].shape[2]))
-        cur_preds = model_da.predict(np.repeat(cur_drivers,n_en, axis =0), batch_size = n_en * n_segs)
-    
-        cur_h, cur_c = model_da.rnn_layer.states 
+        cur_preds = rgcn_da(np.repeat(cur_drivers, n_en, axis = 0), h_init = h, c_init = c)
+        cur_preds = cur_preds.numpy() 
+        cur_h = rgcn_da.h_gr
+        cur_c = rgcn_da.c_gr
         
-        cur_states = combine_lstm_states(
-                cur_preds[:,0,:],
-                cur_h.numpy(), 
-                cur_c.numpy(),
-                n_segs,
-                n_states_est,
-                n_en)
-        Y_no_da[:,t,:] = cur_states # storing in Y for EnKF updating 
+        cur_states = combine_rgcn_states(
+                    cur_preds[:,0,:],
+                    cur_h.numpy(), 
+                    cur_c.numpy(),
+                    n_segs,
+                    n_states_est,
+                    n_en,
+                    hidden_layers = hidden_layers)
+        Y_no_da[:,t,:] = cur_states
 
 
 # loop through forecast time steps and make forecasts & update with EnKF 
@@ -288,18 +288,18 @@ if store_forecasts & store_raw_states:
     "model_locations": model_locations,
     "obs_orig": obs_mat_orig,
     }
-#if store_raw_states: 
-#    out = {
-#    "Y": Y,
-#    "Y_no_da": Y_no_da,
-#    "obs": obs_mat,
-#    "R": R,
-#    "Q": Q,
-#    "P": P,
-#    "dates": dates,
-#    "model_locations": model_locations,
-#    "obs_orig": obs_mat_orig,
-#    }
+if store_raw_states: 
+    out = {
+    "Y": Y,
+    "Y_no_da": Y_no_da,
+    "obs": obs_mat,
+    "R": R,
+    "Q": Q,
+    "P": P,
+    "dates": dates,
+    "model_locations": model_locations,
+    "obs_orig": obs_mat_orig,
+    }
 else: 
     out = {
     "Y": Y,

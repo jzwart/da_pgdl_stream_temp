@@ -70,7 +70,8 @@ def prep_data_lstm_da(
     start_date_pred,
     end_date_pred,
     x_vars=["seg_tave_air"],
-    y_vars=["temp_c"],
+    y_vars=["seg_tave_water"],
+    obs_vars = ["temp_c"], 
     out_file=None,
     n_en = 1, # number of ensembles for DA - creating n_en batches 
 ):
@@ -85,8 +86,18 @@ def prep_data_lstm_da(
         scale_data=True,
     )
     y_trn, y_pred = prep_one_var_lstm_da(
-        obs_temp_file,
+        driver_file,
         y_vars,
+        seg_id,
+        start_date_trn,
+        end_date_trn,
+        start_date_pred,
+        end_date_pred,
+        scale_data=False,
+    )
+    obs_trn, obs_pred = prep_one_var_lstm_da(
+        obs_temp_file,
+        obs_vars,
         seg_id,
         start_date_trn,
         end_date_trn,
@@ -113,12 +124,21 @@ def prep_data_lstm_da(
     y_trn = np.moveaxis(y_trn, 1, 0)  # should now be in shape of [nseg, seq_len, nfeats]
     y_trn = np.repeat(y_trn, n_en, axis = 0)  
     
+    obs_trn = fmt_dataset(obs_trn)
+    obs_trn = np.moveaxis(obs_trn, 0, -1)
+    obs_trn = np.moveaxis(obs_trn, 1, 0)  # should now be in shape of [nseg, seq_len, nfeats]
+    obs_trn = np.repeat(obs_trn, n_en, axis = 0)  
+    
     x_pred = fmt_dataset(x_pred)
     x_pred = np.moveaxis(x_pred, 0, -1)
     x_pred = np.moveaxis(x_pred, 1, 0)  # should now be in shape of [nseg, seq_len, nfeats]
     y_pred = fmt_dataset(y_pred)
     y_pred = np.moveaxis(y_pred, 0, -1)
     y_pred = np.moveaxis(y_pred, 1, 0)  # should now be in shape of [nseg, seq_len, nfeats]
+    
+    obs_pred = fmt_dataset(obs_pred)
+    obs_pred = np.moveaxis(obs_pred, 0, -1)
+    obs_pred = np.moveaxis(obs_pred, 1, 0)  # should now be in shape of [nseg, seq_len, nfeats]
     
     data = {
         "x_trn": x_trn,
@@ -128,21 +148,10 @@ def prep_data_lstm_da(
         "model_locations": seg_id, 
         "y_trn": y_trn,
         "y_pred": y_pred,
+        "obs_trn": obs_trn,
+        "obs_pred": obs_pred,
     }
     if out_file:
         np.savez_compressed(out_file, **data)
     return data
 
-seg_ids = [1573] # needs to be a list of seg_ids (even if one segment)
-
-prep_data_lstm_da(
-    obs_temp_file = "5_pgdl_pretrain/in/obs_temp_full",
-    driver_file = "5_pgdl_pretrain/in/uncal_sntemp_input_output",
-    seg_id = seg_ids,
-    start_date_trn = "2000-06-01",
-    end_date_trn = "2012-06-01",
-    start_date_pred = "2012-06-02",
-    end_date_pred = "2013-06-02",
-    out_file="5_pgdl_pretrain/in/lstm_da_data_just_air_temp.npz",
-    n_en = 100
-)

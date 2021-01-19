@@ -10,7 +10,7 @@ run_prms_sntemp_ens = function(nc_output_file_ind,
                                orig_model_loc,
                                model_fabric_file = 'GIS/Segments_subset.shp'){
 
-  for(n in seq_along(n_en)){
+  for(n in seq_len(n_en)){
     print(sprintf('starting ensemble # %s of %s', n, n_en))
     # copy over original run files to temporary file location - overwrites any changes made to params / drivers
     copy_model_to_run_dir(model_run_loc = model_run_loc,
@@ -24,8 +24,8 @@ run_prms_sntemp_ens = function(nc_output_file_ind,
                              model_idx = as.character(model_fabric$model_idx)) %>%
       arrange(as.numeric(model_idx))
 
-    start = as.Date(start)
-    stop = as.Date(stop)
+    #start = as.Date(start)
+    #stop = as.Date(stop)
 
     # set parameters by drawing from nc file for current ensemble
     param_list = nc_params_get(nc_file_ind = nc_param_file_ind,
@@ -39,8 +39,8 @@ run_prms_sntemp_ens = function(nc_output_file_ind,
     # run PRMS-SNTemp with current ensemble params and drivers
     run_sntemp(start = start,
                stop = stop,
-               spinup = F,
-               restart = F,
+               spinup = T,
+               restart = T,
                save_ic = F,
                model_run_loc = model_run_loc,
                var_init_file = 'prms_ic.out',
