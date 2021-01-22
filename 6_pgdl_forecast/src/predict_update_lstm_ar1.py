@@ -9,6 +9,7 @@ from EnKF_functions import *
 
 train_dir = '5_pgdl_pretrain/out'
 pre_train = True # T/F if to pre-train with SNTemp output 
+fine_tune = True # T/F if to do fine-tune training on temeprature observations 
 process_error = True # T/F add process error during DA step 
 store_raw_states = True # T/F store the LSTM states without data assimilation 
 store_forecasts = True # T/F store predictions that are in the future 
@@ -24,10 +25,12 @@ alpha = 0.9  # weight for how quickly the process error is allowed to
 psi = 0.6 # weighting for how much uncertainty goes to long-term average vs. 
             # dynamic uncertainty (higher psi places higher weight on long-term average uncertainty)
 temp_obs_sd = .8 # standard deviation of temperature observations 
+doy_feat = True # T/F to add day of year 
 
 n_en = 50 
-n_epochs_pre = 20 # number of epochs for pretraining 
+n_epochs_pre = 100# number of epochs for pretraining 
 n_epochs_fine = 100 # number of epochs for finetuning 
+cycles = 1
 weights_dir = '5_pgdl_pretrain/out/lstm_da_trained_wgts/'
 out_h_file = '5_pgdl_pretrain/out/h.npy' 
 out_c_file = '5_pgdl_pretrain/out/c.npy' 
@@ -42,7 +45,7 @@ prep_data_lstm_da(
     end_date_trn = "2012-06-01",
     start_date_pred = "2012-06-02",
     end_date_pred = "2013-06-02",
-    x_vars=["seg_tave_air","seg_rain","seginc_swrad"],
+    x_vars=["seg_tave_air", "seg_tave_water"],
     y_vars=["seg_tave_water"],
     obs_vars = ["temp_c"],
     out_file="5_pgdl_pretrain/in/lstm_da_data.npz",
@@ -51,50 +54,94 @@ prep_data_lstm_da(
 
 # load in the data 
 data = np.load('5_pgdl_pretrain/in/lstm_da_data.npz')
+seg_tave_water_mean = data['seg_tave_water_mean']
+seg_tave_water_std = data['seg_tave_water_std'] 
+
+# add in yesterday's water temperature as a driver (AR1)
+temp_minus1 = data['x_trn'][:,0:(data['x_trn'].shape[1]-1),1]
+x_trn = data['x_trn'][:,1:data['x_trn'].shape[1],:]
+#x_trn = np.append(x_trn, temp_minus1, axis = 2) # add temp_minus1 as a feature 
+x_trn[:,:,1] = temp_minus1
+y_trn = data['y_trn'][:,1:data['y_trn'].shape[1],:] 
+# taking average of prms-sntemp preds to see if training is better 
+y_trn = np.repeat(np.mean(y_trn, axis = 0), n_en, axis=1)
+y_trn = np.moveaxis(y_trn, 0, -1)
+y_trn = y_trn.reshape((y_trn.shape[0],y_trn.shape[1],1))
+obs_trn = data['obs_trn'][:,1:data['obs_trn'].shape[1],:] 
+if doy_feat:
+    doy_trn = data['doy_trn'][0:(data['doy_trn'].shape[0]-1)]
+    doy_pred = data['doy_pred'][0:(data['doy_pred'].shape[0]-1)]
+    doy_trn = np.tile(doy_trn, n_en).reshape((n_en, doy_trn.shape[0],1))
+    doy_pred = np.tile(doy_pred, n_en).reshape((n_en, doy_pred.shape[0],1))
+    x_trn = np.append(x_trn, doy_trn, axis = 2)
+
 
 if pre_train:
-    n_batch, seq_len, n_feat = data['x_trn'].shape
+    n_batch, seq_len, n_feat = x_trn.shape
     pretrain_model = LSTMDA(1)
-    pretrain_model(data['x_trn'])
+    pretrain_model(x_trn)
 
     pretrain_model.compile(loss=rmse_masked, optimizer=tf.optimizers.Adam(learning_rate=0.3))
-    pretrain_model.fit(x=data['x_trn'], y=data['y_trn'], epochs=n_epochs_pre, batch_size=n_batch)
+    pretrain_model.fit(x=x_trn, y=y_trn, epochs=n_epochs_pre, batch_size=n_batch)
 
     pretrain_model.save_weights(weights_dir)
-    
-    fine_tune_model = LSTMDA(1) 
-    fine_tune_model.load_weights(weights_dir) 
-    fine_tune_model.rnn_layer.build(input_shape=data['x_trn'].shape)
-    
-    fine_tune_model.compile(loss=rmse_masked, optimizer=tf.optimizers.Adam(learning_rate=0.3))
-    fine_tune_model.fit(x=data['x_trn'], y=data['obs_trn'], epochs=n_epochs_fine, batch_size=n_batch)
-    
-    fine_tune_model.save_weights(weights_dir)
-
-    h, c = fine_tune_model.rnn_layer.states
+    h, c = pretrain_model.rnn_layer.states
     np.save(out_h_file, h.numpy())
     np.save(out_c_file, c.numpy())
-else:
-    fine_tune_model = LSTMDA(1) 
-    fine_tune_model(data['x_trn']) 
     
-    fine_tune_model.compile(loss=rmse_masked, optimizer=tf.optimizers.Adam(learning_rate=0.3))
-    fine_tune_model.fit(x=data['x_trn'], y=data['obs_trn'], epochs=n_epochs_fine, batch_size=n_batch)
+    if fine_tune:
+        dl_da_iter(cycles = cycles,
+                   weights_dir = weights_dir,
+                   out_h_file = out_h_file, 
+                   out_c_file = out_c_file,
+                   x_trn = x_trn, 
+                   obs_trn = obs_trn, 
+                   data = data, 
+                   temp_obs_sd = temp_obs_sd,
+                   n_en =n_en, 
+                   process_error = process_error, 
+                   n_epochs_fine = n_epochs_fine)
     
-    fine_tune_model.save_weights(weights_dir)
+    #fine_tune_model = LSTMDA(1) 
+    #fine_tune_model.load_weights(weights_dir) 
+    #fine_tune_model.rnn_layer.build(input_shape=data['x_trn'].shape)
+    
+    #fine_tune_model.compile(loss=rmse_masked, optimizer=tf.optimizers.Adam(learning_rate=0.3))
+    #fine_tune_model.fit(x=data['x_trn'], y=data['obs_trn'], epochs=n_epochs_fine, batch_size=n_batch)
+    
+    #fine_tune_model.save_weights(weights_dir)
 
-    h, c = fine_tune_model.rnn_layer.states
-    np.save(out_h_file, h.numpy())
-    np.save(out_c_file, c.numpy())
+    #h, c = fine_tune_model.rnn_layer.states
+    #np.save(out_h_file, h.numpy())
+    #np.save(out_c_file, c.numpy())
+#else:
+ #   fine_tune_model = LSTMDA(1) 
+  #  fine_tune_model(data['x_trn']) 
+    
+  #  fine_tune_model.compile(loss=rmse_masked, optimizer=tf.optimizers.Adam(learning_rate=0.3))
+  #  fine_tune_model.fit(x=data['x_trn'], y=data['obs_trn'], epochs=n_epochs_fine, batch_size=n_batch)
+    
+  #  fine_tune_model.save_weights(weights_dir)
+
+  #  h, c = fine_tune_model.rnn_layer.states
+  #  np.save(out_h_file, h.numpy())
+  #  np.save(out_c_file, c.numpy())
 
 
 # get model prediction parameters for setting up EnKF matrices 
-obs_array = data['obs_pred']
+obs_array = data['obs_pred'][:,1:data['obs_pred'].shape[1],:] 
+temp_minus1 = data['x_pred'][:,0:(data['x_pred'].shape[1]-1),1] # this will be updated with DA 
+x_pred = data['x_pred'][:,1:data['x_pred'].shape[1],:]
+#x_pred = np.append(x_pred, temp_minus1, axis =2)
+x_pred[:,:,1] = temp_minus1
+if doy_feat:
+    x_pred = np.append(x_pred, doy_pred, axis = 2)
+
 n_states_obs, n_step, tmp = obs_array.shape
 model_locations = data['model_locations'] # seg_id_nat of the stream segments 
 n_segs = len(model_locations)
 state_sd = np.repeat(temp_obs_sd, n_states_obs) # uncertainty around observations 
-dates = data['dates_pred']
+dates = data['dates_pred'][1:data['dates_pred'].shape[0]]
 
 # load LSTM states from trained model 
 h = np.load(out_h_file, allow_pickle=True)
@@ -138,28 +185,37 @@ if store_forecasts:
 if store_forecasts:
     model_forecast = LSTMDA(1) # model that will make forecasts many days into future 
     model_forecast.load_weights(weights_dir)
-    forecast_shape = (n_en * len(model_locations), f_horizon, data['x_pred'].shape[2]) 
+    forecast_shape = (n_en * len(model_locations), 1, x_pred.shape[2]) 
     model_forecast.rnn_layer.build(input_shape=forecast_shape) # full timestep forecast 
     model_forecast.rnn_layer.reset_states(states=[h, c])
-    forecast_drivers = data['x_pred'][:,0:f_horizon,:].reshape((data['x_pred'].shape[0], f_horizon, data['x_pred'].shape[2]))
-    forecast_preds = model_forecast.predict(np.repeat(forecast_drivers, n_en, axis = 0), batch_size = n_en * n_segs)
-    cur_forecast = get_forecast_preds(preds = forecast_preds,
-                                      n_segs = n_segs,
-                                      n_states_obs = n_states_obs, 
-                                      n_en = n_en,
-                                      f_horizon = f_horizon)
-    Y_forecasts[:,0,:,:] = cur_forecast
+    for tt in range(f_horizon):
+        cur_t = 0+tt
+        forecast_drivers = x_pred[:,cur_t,:].reshape((x_pred.shape[0], 1, x_pred.shape[2]))
+        forecast_preds = model_forecast.predict(forecast_drivers, batch_size = n_en * n_segs)
+        #cur_forecast = get_forecast_preds(preds = forecast_preds,
+         #                                 n_segs = n_segs,
+          #                                n_states_obs = n_states_obs, 
+           #                               n_en = n_en,
+            #                              f_horizon = f_horizon)
+        Y_forecasts[:,0,tt,:] = forecast_preds[:,0,:].reshape((n_segs,n_en)) #cur_forecast
+        Y_forecasts = add_process_error_forecast(Y = Y_forecasts, 
+                                                 Q = Q,
+                                                 H = H,
+                                                 n_en = n_en,
+                                                 cur_step = 0,
+                                                 cur_valid_t = cur_t,
+                                                 n_segs = n_segs)
         
 model_da = LSTMDA(1) # model that will make predictions only one day into future 
 model_da.load_weights(weights_dir)
-da_drivers = data['x_pred'][:,0,:].reshape((data['x_pred'].shape[0],1,data['x_pred'].shape[2])) # only single timestep for DA model
+da_drivers = x_pred[:,0,:].reshape((x_pred.shape[0],1,x_pred.shape[2])) # only single timestep for DA model
 da_shape = (n_en * len(model_locations), da_drivers.shape[1], da_drivers.shape[2])
 model_da.rnn_layer.build(input_shape=da_shape)
 
 # initialize the states with the previously trained states 
 model_da.rnn_layer.reset_states(states=[h, c])
 # make predictions and store states for updating with EnKF 
-da_preds = model_da.predict(np.repeat(da_drivers, n_en, axis = 0), batch_size = n_en * n_segs) # make this dynamic batch size based on n_en
+da_preds = model_da.predict(da_drivers, batch_size = n_en * n_segs) # make this dynamic batch size based on n_en
 cur_h, cur_c = model_da.rnn_layer.states 
 #print(da_preds)
 
@@ -198,8 +254,8 @@ if store_raw_states:
         model_da.rnn_layer.reset_states(states=[new_h, new_c]) 
     
         # make predictions  and store states 
-        cur_drivers = data['x_pred'][:,t,:].reshape((data['x_pred'].shape[0],1,data['x_pred'].shape[2]))
-        cur_preds = model_da.predict(np.repeat(cur_drivers,n_en, axis =0), batch_size = n_en * n_segs)
+        cur_drivers = x_pred[:,t,:].reshape((x_pred.shape[0],1,x_pred.shape[2]))
+        cur_preds = model_da.predict(cur_drivers, batch_size = n_en * n_segs)
     
         cur_h, cur_c = model_da.rnn_layer.states 
         
@@ -219,10 +275,9 @@ if store_forecasts:
 for t in range(1, n_step):
     print(dates[t])
     
-    # testing state adjustment by adjusting h & c by a lot 
-    #if t == 30: 
-    #    Y[1,t-1,:] = np.random.normal(20, 2, n_en)
-    #    Y[2,t-1,:] = np.random.normal(40, 2, n_en)
+    # update yesterday's temperature driver from Y; need to scale first though 
+    scaled_seg_tave_water = (Y[0:n_segs,t-1,:].reshape(n_en) - seg_tave_water_mean) / (seg_tave_water_std + 1e-10)
+    x_pred[:,t,1] = scaled_seg_tave_water
     
     # update lstm with h & c states stored in Y from previous timestep 
     new_h, new_c = get_updated_lstm_states(
@@ -233,20 +288,33 @@ for t in range(1, n_step):
     model_da.rnn_layer.reset_states(states=[new_h, new_c]) 
     if store_forecasts:
         model_forecast.rnn_layer.reset_states(states=[new_h, new_c])
-        start = t
-        stop = start+f_horizon
-        forecast_drivers = data['x_pred'][:,start:stop,:].reshape((data['x_pred'].shape[0], f_horizon, data['x_pred'].shape[2]))
-        forecast_preds = model_forecast.predict(np.repeat(forecast_drivers, n_en, axis = 0), batch_size = n_en * n_segs)
-        cur_forecast = get_forecast_preds(preds = forecast_preds,
-                                          n_segs = n_segs,
-                                          n_states_obs = n_states_obs, 
-                                          n_en = n_en,
-                                          f_horizon = f_horizon)
-        Y_forecasts[:,t,:,:] = cur_forecast
+        for tt in range(f_horizon):
+            cur_t = t + tt
+            forecast_drivers = x_pred[:,cur_t,:].reshape((x_pred.shape[0], 1, x_pred.shape[2]))
+            if tt > 0: 
+                scaled_seg_tave_water = (Y_forecasts[0:n_segs,t,tt-1,:].reshape(n_en) - seg_tave_water_mean) / (seg_tave_water_std + 1e-10)
+                forecast_drivers[:,0,1] = scaled_seg_tave_water
+            forecast_preds = model_forecast.predict(forecast_drivers, batch_size = n_en * n_segs)
+            #cur_forecast = get_forecast_preds(preds = forecast_preds,
+             #                                 n_segs = n_segs,
+              #                                n_states_obs = n_states_obs, 
+               #                               n_en = n_en,
+                #                              f_horizon = f_horizon)
+            Y_forecasts[:,t,tt,:] = forecast_preds[:,0,:].reshape((n_segs,n_en)) #cur_forecast
+            Y_forecasts = add_process_error_forecast(Y = Y_forecasts, 
+                                                 Q = Q,
+                                                 H = H,
+                                                 n_en = n_en,
+                                                 cur_step = t,
+                                                 cur_valid_t = tt,
+                                                 n_segs = n_segs)
+            if force_pos: 
+                Y_forecasts[0:n_segs,t,tt,:] = np.where(Y_forecasts[0:n_segs,t,tt,:]<0,0,Y_forecasts[0:n_segs,t,tt,:])
+    
 
     # make predictions  and store states for updating with EnKF 
-    cur_drivers = data['x_pred'][:,t,:].reshape((data['x_pred'].shape[0],1,data['x_pred'].shape[2]))
-    cur_preds = model_da.predict(np.repeat(cur_drivers,n_en, axis =0), batch_size = n_en * n_segs)
+    cur_drivers = x_pred[:,t,:].reshape((x_pred.shape[0],1,x_pred.shape[2]))
+    cur_preds = model_da.predict(cur_drivers, batch_size = n_en * n_segs)
 
     cur_h, cur_c = model_da.rnn_layer.states 
     

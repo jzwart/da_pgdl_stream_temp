@@ -1,10 +1,11 @@
 
 library(dplyr)
+library(tidyverse)
 library(ggplot2)
 library(reticulate)
 np = import('numpy')
 
-d = np$load('5_pgdl_pretrain/out/simple_lstm_da_100epoch_0.5beta_0.8alpha.npz')
+d = np$load('5_pgdl_pretrain/out/simple_lstm_da_100epoch_0.5beta_0.9alpha.npz')
 
 obs = d$f[['obs']] #[,,1:10]
 obs_withheld = d$f[['obs_orig']] # if we withhold observations from DA steps
@@ -12,7 +13,7 @@ Y = d$f[['Y']]#[,1:10,]
 R = d$f[['R']]#[,,1:10]
 Q = d$f[['Q']]
 P = d$f[['P']]
-n_en = 100
+n_en = 50
 dates = d$f[['dates']]
 n_step = length(dates)
 cur_model_idxs = d$f[['model_locations']]
@@ -20,7 +21,7 @@ n_segs = length(cur_model_idxs)
 #preds_no_da = d$f[['preds_no_da']]
 Y_no_da = d$f[['Y_no_da']]
 Y_forecast = d$f[['Y_forecasts']]
-f_horizon = 3 # make dynamic from output
+f_horizon = dim(Y_forecast)[3]
 #true = d$f[['true']]
 
 add_text <- function(text, location="topright"){
@@ -198,19 +199,23 @@ for(j in cur_model_idxs){
 
 # plot forecasts
 Y_forecast[,,1,] = Y[1:n_segs,,]
+issue_times = 300:330
 for(j in cur_model_idxs){
   # obs[,1,1]
   matrix_loc = which(cur_model_idxs == j)
 
+  mean_pred_no_da = rowMeans(Y_no_da[matrix_loc,,]) # colMeans(preds_no_da[,,matrix_loc])
+
   windows(width = 14, height = 10)
-  plot(Y_forecast[matrix_loc,,1,1] ~ dates, type = 'l',
+  plot(Y_forecast[matrix_loc,issue_times,1,1] ~ dates[issue_times], type = 'l',
        ylab = 'Stream Temp (C)', xlab = '', lty=0,
-       ylim = c(0,25), #ylim =range(c(Y[matrix_loc,,], obs[matrix_loc,1,]), na.rm = T), #, Y_no_assim[matrix_loc,,])
+       #ylim = c(0,25),
+       ylim =range(c(Y_forecast[matrix_loc,issue_times,,], obs[matrix_loc,1,issue_times]), na.rm = T), #, Y_no_assim[matrix_loc,,])
        cex.axis = 2, cex.lab =2, main = sprintf('model idx %s', j))
-  points(obs[matrix_loc,1,] ~ dates, col = 'red', pch = 16, cex = 1.2)
-  arrows(dates, obs[matrix_loc,1,]+R[matrix_loc,matrix_loc,], dates, obs[matrix_loc,1,]-R[matrix_loc,matrix_loc,],
+  points(obs[matrix_loc,1,issue_times] ~ dates[issue_times], col = 'red', pch = 16, cex = 1.2)
+  arrows(dates[issue_times], obs[matrix_loc,1,issue_times]+R[matrix_loc,matrix_loc,issue_times], dates[issue_times], obs[matrix_loc,1,issue_times]-R[matrix_loc,matrix_loc,issue_times],
          angle = 90, length = .05, col = 'red', code = 3)
-  for(t in 1:n_step){
+  for(t in issue_times){
     mean_pred = rowMeans(Y_forecast[matrix_loc,t,,])
     cur_dates = dates[t:(t+f_horizon-1)]
     for(i in 1:n_en){
@@ -218,5 +223,49 @@ for(j in cur_model_idxs){
     }
     lines(mean_pred ~ cur_dates, lwd = 2, col = alpha('black', .5))
   }
+  points(obs[matrix_loc,1,issue_times] ~ dates[issue_times], col = 'red', pch = 16, cex = 1.2)
+  arrows(dates[issue_times], obs[matrix_loc,1,issue_times]+R[matrix_loc,matrix_loc,issue_times], dates[issue_times], obs[matrix_loc,1,issue_times]-R[matrix_loc,matrix_loc,issue_times],
+         angle = 90, length = .05, col = 'red', code = 3)
+  lines(mean_pred_no_da[issue_times] ~ dates[issue_times], lwd =2 ,col = alpha('blue',.5))
 }
 
+
+# what is the RMSE based on lead time?
+issue_times = 1:n_step
+out = crossing(tibble(issue_date = dates[issue_times]), tibble(lead_time = seq(0,f_horizon-1)))
+out = mutate(out,
+             valid_time = issue_date + lubridate::days(lead_time),
+             mean_da_forecast = NA)
+for(t in issue_times){
+  cur_date = dates[t]
+  mean_pred = rowMeans(Y_forecast[matrix_loc,t,,])
+  out$mean_da_forecast = ifelse(out$issue_date==cur_date, mean_pred, out$mean_da_forecast)
+}
+obs_df = tibble(date = dates[issue_times], obs_temp = obs[1,1,issue_times])
+mean_pred_no_da = rowMeans(Y_no_da[matrix_loc,,])
+no_da_preds = tibble(date = dates[issue_times], mean_pred_no_da = mean_pred_no_da[issue_times])
+out = left_join(out,obs_df, by = c("valid_time"=  "date"))
+out = left_join(out, no_da_preds, by = c("valid_time" = "date"))
+
+RMSE = function(m, o, na.rm = T){
+  sqrt(mean((m - o)^2, na.rm = na.rm))
+}
+
+accuracy = out %>%
+  group_by(lead_time) %>%
+  summarise(DA = RMSE(mean_da_forecast, obs_temp),
+            No_DA = RMSE(mean_pred_no_da, obs_temp)) %>%
+  pivot_longer(cols = contains('DA'), names_to = 'forecast_type',values_to = 'rmse')
+
+ggplot(accuracy, aes(x = lead_time, y = rmse, group = forecast_type, color = forecast_type))+
+  geom_line(size = 2) +
+  geom_point(size = 3) +
+  theme_minimal()+
+  theme(axis.text = element_text(size =14),
+        axis.title = element_text(size = 16))+
+  xlab('Lead Time (days)') +
+  ylab('RMSE (C)')
+
+#plot((accuracy$rmse_no_da-accuracy$rmse_da) ~ accuracy$lead_time, type = 'l', lwd=3,
+#    ylim = c(0, max(accuracy$rmse_no_da-accuracy$rmse_da)))
+#abline(0,0,lty=2, lwd=2)

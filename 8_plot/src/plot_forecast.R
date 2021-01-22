@@ -1,5 +1,5 @@
 
-x_range = 1:40
+x_range = 17:30
 
 cur_model_idxs = '1573'
 for(j in cur_model_idxs){

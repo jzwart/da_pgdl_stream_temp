@@ -304,7 +304,7 @@ def kalman_filter(
     # update Y vector #
     Y_shape = Y.shape
     for q in range(n_en):
-        er = cur_obs - np.matmul(H[:,:,cur_step], Y[:,cur_step,q])
+        er = (cur_obs+np.random.normal(0,np.diag(R[:,:,cur_step]))) - np.matmul(H[:,:,cur_step], Y[:,cur_step,q])
         er = er.reshape((er.shape[0], 1))
         Y[:, cur_step, q] = np.add(Y[:,cur_step,q].reshape((Y_shape[0],1)), np.matmul(K, er)).reshape((Y_shape[0])) # adjusting each ensemble using kalman gain and observations
 
@@ -395,11 +395,35 @@ def add_process_error(
     # add error to unobserved values only (similar to inflation factor); 
     H_unobs_t = np.where(H[:,:,cur_step] == 0, 1, 0)
     H_unobs_t = H_unobs_t[0,:].reshape((Y.shape[0],1))
-    ens_spread = get_ens_deviate(Y, n_en, cur_step)
-    to_add = (ens_spread * 0.05) * H_unobs_t
+    H_obs_t = np.where(H[:,:,cur_step] == 1, 1, 0)
+    H_obs_t = H_obs_t[0,:].reshape((Y.shape[0],1))
+    mean_states = np.mean(Y[:,cur_step,:], axis=1)
+    Q_diag = np.diag(Q[:,:,cur_step])
+    mean_cv = np.matmul(Q_diag/mean_states, H_obs_t)
+    
+    cur_sd = np.abs(Y[:,cur_step,:] * mean_cv * H_unobs_t)
+    to_add = np.random.normal(np.zeros((Y.shape[0],Y.shape[2])), cur_sd)
     
     for q in range(n_en):
-        Y[0:Q.shape[1],cur_step,q] = Y[0:Q.shape[1],cur_step,q] + np.random.normal(np.repeat(0,Q.shape[1]), np.sqrt(np.abs(np.diag(Q[:,:,cur_step]))), Q.shape[1]) + to_add[0:Q.shape[1], q] 
+        Y[0:Q.shape[1],cur_step,q] = Y[0:Q.shape[1],cur_step,q] + np.random.normal(np.repeat(0,Q.shape[1]), np.sqrt(np.abs(np.diag(Q[:,:,cur_step]))), Q.shape[1]) #+ to_add[0:Q.shape[1], q] 
+    
+    return Y 
+
+def add_process_error_forecast(
+        Y,
+        Q,
+        H,
+        n_en,
+        cur_step,
+        cur_valid_t, 
+        n_segs
+):
+    '''
+    adding process error to estimated states from Q 
+    
+    '''
+    for q in range(n_en):
+        Y[0:n_segs,cur_step,cur_valid_t,q] = Y[0:n_segs,cur_step,cur_valid_t,q] + np.random.normal(np.repeat(0,n_segs), np.sqrt(np.abs(np.diag(Q[0:n_segs,0:n_segs,cur_step]))), n_segs) 
     
     return Y 
 
@@ -429,40 +453,47 @@ def update_model_error(
         R,
         H,
         Q,
+        Q_ave, # long-term average error 
         P,
         Pstar_t,
         S_t,
         n_en,
         cur_step,
         beta,
-        alpha
+        alpha,
+        psi
 ):
     
     '''
     updating model process error as in Rastetter et al. 2010 
     
     '''
-    gamma = get_error_dist(Y = Y,
-                           H = H,
-                           R = R,
-                           P = P,
-                           n_en = n_en,
-                           cur_step = cur_step,
-                           beta = beta)
-    
-    # add error to unobserved values only (similar to inflation factor); 
-    #  adding a fraction based on the obs error 
-    #H_unobs_t = np.where(H[:,:,cur_step] == 0, 1, 0)
-    #ens_spread = get_ens_deviate(Y, n_en, cur_step)
-    #ens_range = np.max(ens_spread, axis = 1) - np.min(ens_spread, axis = 1) 
-    #to_add = ens_range * 1.02 * H_unobs_t
-    #to_add = np.matmul(np.matmul(H[:,:,cur_step], gamma), H_unobs_t) * 0.2 
-    #gamma = gamma + to_add.T 
-    
-    Q_hat = np.matmul(np.matmul(gamma, (S_t - np.matmul(np.matmul(H[:,:,cur_step], Pstar_t), H[:,:,cur_step].T) - R[:,:,cur_step])), gamma.T) 
-    # np.fill_diagonal(Q_hat, np.diag(Q_hat) + to_add[:,0]) 
-    
-    Q[:,:,(cur_step+1)] = alpha * Q[:,:,cur_step] + (1-alpha)*Q_hat
+    any_obs = H[:,:,cur_step] == 1 # are there any observations at this timestep? 
+    if any_obs.any():
+        gamma = get_error_dist(Y = Y,
+                               H = H,
+                               R = R,
+                               P = P,
+                               n_en = n_en,
+                               cur_step = cur_step,
+                               beta = beta)
+        
+        # add error to unobserved values only (similar to inflation factor); 
+        #  adding a fraction based on the obs error 
+        #H_unobs_t = np.where(H[:,:,cur_step] == 0, 1, 0)
+        #ens_spread = get_ens_deviate(Y, n_en, cur_step)
+        #ens_range = np.max(ens_spread, axis = 1) - np.min(ens_spread, axis = 1) 
+        #to_add = ens_range * 1.02 * H_unobs_t
+        #to_add = np.matmul(np.matmul(H[:,:,cur_step], gamma), H_unobs_t) * 0.2 
+        #gamma = gamma + to_add.T 
+        
+        Q_hat = np.matmul(np.matmul(gamma, (S_t - np.matmul(np.matmul(H[:,:,cur_step], Pstar_t), H[:,:,cur_step].T) - R[:,:,cur_step])), gamma.T) 
+        # np.fill_diagonal(Q_hat, np.diag(Q_hat) + to_add[:,0]) 
+        Q_hat = alpha * Q[:,:,cur_step] + (1-alpha)*Q_hat
+        
+        Q[:,:,(cur_step+1)] = psi * Q_ave + (1-psi)*Q_hat
+    else: 
+        Q[:,:,(cur_step+1)] = Q[:,:,(cur_step)] # if no observations, previous Q == next step Q 
     
     return Q 
 
