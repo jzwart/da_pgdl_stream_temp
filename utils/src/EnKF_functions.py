@@ -13,7 +13,8 @@ def combine_lstm_states(
         c,
         n_segs,
         n_states_est, 
-        n_en
+        n_en,
+        hidden_units
 ):
     '''
     Combining lstm states for updating in EnKF. Should always be in the order of preds, h, c. 
@@ -22,8 +23,11 @@ def combine_lstm_states(
     out = np.empty((n_states_est, n_en))
     
     for i in range(n_en):
-        cur_idxs = np.repeat(i, n_segs) + n_en * (np.arange(0,n_segs))
-        out[:,i] = np.concatenate((preds[cur_idxs,:], h[cur_idxs,:], c[cur_idxs,:])).reshape((n_states_est))
+        cur_idxs = np.repeat(i, n_segs) + n_en * (np.arange(0,n_segs)) # index of predictions for all segments for current ensemble 
+        cur_preds = preds[cur_idxs,:].reshape(n_segs)
+        cur_h = h[cur_idxs,:].reshape(n_segs*hidden_units)
+        cur_c = c[cur_idxs,:].reshape(n_segs*hidden_units)
+        out[:,i] = np.concatenate((cur_preds, cur_h, cur_c)).reshape((n_states_est))
         
     return out
 
@@ -75,6 +79,7 @@ def get_updated_lstm_states(
         Y,
         n_segs,
         n_en, 
+        hidden_units,
         cur_step
 ):
     '''
@@ -90,14 +95,20 @@ def get_updated_lstm_states(
     None.
 
     '''
-    # states should always be stored in the order of preds, h, c 
-    h_idx = np.arange(1*n_segs, 1*n_segs+n_segs) 
-    h = Y[h_idx,cur_step,:].reshape((n_en * n_segs, 1)) 
+    h_out = np.empty((n_segs*n_en, hidden_units))
+    c_out = np.empty((n_segs*n_en, hidden_units))
     
-    c_idx = np.arange(2*n_segs, 2*n_segs+n_segs) 
-    c = Y[c_idx,cur_step,:].reshape((n_en * n_segs, 1)) 
+    for i in range(n_en): 
+        # states should always be stored in the order of preds, h, c 
+        h_idx = np.arange(n_segs, n_segs+n_segs*hidden_units) 
+        h_out_idx = np.repeat(i, n_segs) + n_en * (np.arange(0,n_segs))
+        h_out[h_out_idx,:] = Y[h_idx,cur_step,i].reshape((n_segs, hidden_units)) 
+        
+        c_idx = np.arange(2*n_segs + (n_segs * (hidden_units-1)), Y.shape[0]) 
+        c_out_idx = np.repeat(i, n_segs) + n_en * (np.arange(0,n_segs))
+        c_out[c_out_idx, :] = Y[c_idx,cur_step,i].reshape((n_segs, hidden_units)) 
     
-    return h, c
+    return h_out, c_out
 
 def get_updated_rgcn_states(
         Y,

@@ -17,7 +17,8 @@ process_error = True # T/F add process error during DA step
 store_raw_states = True # T/F store the LSTM states without data assimilation 
 store_forecasts = True # T/F store predictions that are in the future 
 force_pos = True # T/F force estimates to be positive 
-update_h_c = True 
+update_h_c = False # T/F update h and c states with DA 
+include_ar1 = True # T/F include yesterday's water temp as driver 
 f_horizon = 8 # forecast horizon in days (how many days into the future to make predictions)
 beta = 0.5 # weighting for how much uncertainty should go to observed vs. 
                # unobserved states (lower beta attributes most of the 
@@ -33,56 +34,74 @@ doy_feat = False # T/F to add day of year
 ave_preds = True # T/F to make batches all averages of prms-sntemp preds 
 
 n_en = 50
-n_epochs_pre = 10# number of epochs for pretraining 
-learn_rate_pre = 0.005
+learn_rate_pre = 0.1
 learn_rate_fine = 0.2
+n_epochs_pre = 100# number of epochs for pretraining 
 n_epochs_fine = 100 # number of epochs for finetuning 
-cycles = 10
+hidden_units = 2 # number of hidden units 
+cycles = 10 # number of cycles for DA-DL routine 
 weights_dir = '5_pgdl_pretrain/out/lstm_da_trained_wgts/'
 out_h_file = '5_pgdl_pretrain/out/h.npy' 
 out_c_file = '5_pgdl_pretrain/out/c.npy' 
 
 seg_ids = [1573] # needs to be a list of seg_ids (even if one segment)
 
+if include_ar1:
+    x_vars = ["seg_tave_air", "seg_tave_water"]
+else: 
+    x_vars = ["seg_tave_air"] 
+
 prep_data_lstm_da(
     obs_temp_file = "5_pgdl_pretrain/in/obs_temp_full",
     driver_file = "4_pb_model/out/pb_pretrain_model_output.nc",
     seg_id = seg_ids,
-    start_date_trn = "2000-10-01",
-    end_date_trn = "2012-06-01",
-    start_date_pred = "2012-06-02",
-    end_date_pred = "2013-06-02",
-    x_vars=["seg_tave_air", "seg_tave_water"],
+    start_date_trn = "2000-05-01",
+    end_date_trn = "2013-06-01",
+    start_date_pred = "2013-06-02",
+    end_date_pred = "2014-06-02",
+    x_vars=x_vars,
     y_vars=["seg_tave_water"],
     obs_vars = ["temp_c"],
     out_file="5_pgdl_pretrain/in/lstm_da_data.npz",
-    n_en = n_en
+    n_en = n_en,
+    include_ar1 = include_ar1
 )
 
 # load in the data 
 data = np.load('5_pgdl_pretrain/in/lstm_da_data.npz')
-seg_tave_water_mean = data['seg_tave_water_mean']
-seg_tave_water_std = data['seg_tave_water_std'] 
+if include_ar1:
+    seg_tave_water_mean = data['seg_tave_water_mean']
+    seg_tave_water_std = data['seg_tave_water_std'] 
+    obs_mean = data['obs_mean']
+    obs_std = data['obs_std']
 
-# add in yesterday's water temperature as a driver (AR1)
-temp_minus1 = data['x_trn'][:,0:(data['x_trn'].shape[1]-1),1]
-x_trn = data['x_trn'][:,1:data['x_trn'].shape[1],:]
-#x_trn = np.append(x_trn, temp_minus1, axis = 2) # add temp_minus1 as a feature 
-x_trn[:,:,1] = temp_minus1
-y_trn = data['y_trn'][:,1:data['y_trn'].shape[1],:] 
+    # add in yesterday's water temperature as a driver (AR1)
+    temp_minus1 = data['x_trn'][:,0:(data['x_trn'].shape[1]-1),1]
+    x_trn = data['x_trn'][:,1:data['x_trn'].shape[1],:]
+    #x_trn = np.append(x_trn, temp_minus1, axis = 2) # add temp_minus1 as a feature 
+    x_trn[:,:,1] = temp_minus1
+    y_trn = data['y_trn'][:,1:data['y_trn'].shape[1],:] 
+    obs_trn = data['obs_trn'][:,1:data['obs_trn'].shape[1],:] 
+    doy_trn = data['doy_trn'][0:(data['doy_trn'].shape[0]-1)]
+    doy_pred = data['doy_pred'][0:(data['doy_pred'].shape[0]-1)]
+else: 
+    x_trn = data['x_trn'] 
+    y_trn = data['y_trn'] 
+    obs_trn = data['obs_trn'] 
+    doy_trn = data['doy_trn']
+    doy_pred = data['doy_pred']
 if ave_preds:
     # taking average of prms-sntemp preds to see if training is better 
     y_trn = np.repeat(np.mean(y_trn, axis = 0), n_en, axis=1)
     y_trn = np.moveaxis(y_trn, 0, -1)
     y_trn = y_trn.reshape((y_trn.shape[0],y_trn.shape[1],1))
-    temp_minus1_mean = np.mean(temp_minus1, axis = 0)
-    temp_minus1_mean = np.tile(temp_minus1_mean, n_en).reshape((n_en, temp_minus1_mean.shape[0]))
-    x_trn[:,:,1] = temp_minus1_mean
+    if include_ar1:  
+        temp_minus1_mean = np.mean(temp_minus1, axis = 0)
+        temp_minus1_mean = np.tile(temp_minus1_mean, n_en).reshape((n_en, temp_minus1_mean.shape[0]))
+        x_trn[:,:,1] = temp_minus1_mean
     
-obs_trn = data['obs_trn'][:,1:data['obs_trn'].shape[1],:] 
+
 if doy_feat:
-    doy_trn = data['doy_trn'][0:(data['doy_trn'].shape[0]-1)]
-    doy_pred = data['doy_pred'][0:(data['doy_pred'].shape[0]-1)]
     doy_trn = np.tile(doy_trn, n_en).reshape((n_en, doy_trn.shape[0],1))
     doy_pred = np.tile(doy_pred, n_en).reshape((n_en, doy_pred.shape[0],1))
     x_trn = np.append(x_trn, doy_trn, axis = 2)
@@ -90,7 +109,7 @@ if doy_feat:
 
 if pre_train:
     n_batch, seq_len, n_feat = x_trn.shape
-    pretrain_model = LSTMDA(1)
+    pretrain_model = LSTMDA(hidden_units)
     pretrain_model(x_trn)
 
     pretrain_model.compile(loss=rmse_masked, optimizer=tf.optimizers.Adam(learning_rate=learn_rate_pre))
@@ -135,11 +154,13 @@ if fine_tune_iter:
     #np.save(out_c_file, c.numpy())
 if fine_tune:
     # add in observations as predictions; need to scale first though 
-    scaled_obs = (data['obs_trn'][:,0:(data['obs_trn'].shape[1]-1),:] - seg_tave_water_mean) / (seg_tave_water_std + 1e-10)
-    x_trn[:,:,1] = np.where(np.isnan(scaled_obs[:,:,0]), x_trn[:,:,1], scaled_obs[:,:,0])
+    if include_ar1:
+        #scaled_obs = (data['obs_trn'][:,0:(data['obs_trn'].shape[1]-1),:] - seg_tave_water_mean) / (seg_tave_water_std + 1e-10)
+        scaled_obs = (data['obs_trn'][:,0:(data['obs_trn'].shape[1]-1),:] - obs_mean) / (obs_std + 1e-10)
+        x_trn[:,:,1] = np.where(np.isnan(scaled_obs[:,:,0]), x_trn[:,:,1], scaled_obs[:,:,0])
     
     n_batch, seq_len, n_feat = x_trn.shape
-    fine_tune_model = LSTMDA(1) 
+    fine_tune_model = LSTMDA(hidden_units) 
     fine_tune_model(x_trn) 
     
     fine_tune_model.compile(loss=rmse_masked, optimizer=tf.optimizers.Adam(learning_rate=learn_rate_fine))
@@ -150,19 +171,29 @@ if fine_tune:
     h, c = fine_tune_model.rnn_layer.states
     np.save(out_h_file, h.numpy())
     np.save(out_c_file, c.numpy())
+    trn_preds = fine_tune_model.predict(x_trn, batch_size = n_en * n_segs)
 
 
 # get model prediction parameters for setting up EnKF matrices 
-obs_array = data['obs_pred'][:,1:data['obs_pred'].shape[1],:] 
-temp_minus1 = data['x_pred'][:,0:(data['x_pred'].shape[1]-1),1] # this will be updated with DA 
-x_pred = data['x_pred'][:,1:data['x_pred'].shape[1],:]
-#x_pred = np.append(x_pred, temp_minus1, axis =2)
-x_pred[:,:,1] = temp_minus1
-if ave_preds:
-    # taking average of prms-sntemp preds to see if training is better 
-    temp_minus1_mean = np.mean(temp_minus1, axis = 0)
-    temp_minus1_mean = np.tile(temp_minus1_mean, n_en).reshape((n_en, temp_minus1_mean.shape[0]))
-    x_pred[:,:,1] = temp_minus1_mean
+if include_ar1: 
+    obs_array = data['obs_pred'][:,1:data['obs_pred'].shape[1],:] 
+    temp_minus1 = data['x_pred'][:,0:(data['x_pred'].shape[1]-1),1] # this will be updated with DA 
+    x_pred = data['x_pred'][:,1:data['x_pred'].shape[1],:]
+    #x_pred = np.append(x_pred, temp_minus1, axis =2)
+    x_pred[:,:,1] = temp_minus1
+    # add in observations if there are obs 
+    #scaled_obs = (data['obs_pred'][:,0:(data['obs_pred'].shape[1]-1),:] - seg_tave_water_mean) / (seg_tave_water_std + 1e-10)
+    scaled_obs = (data['obs_pred'][:,0:(data['obs_pred'].shape[1]-1),:] - obs_mean) / (obs_std + 1e-10)
+    x_pred[:,:,1] = np.where(np.isnan(scaled_obs[:,:,0]), x_pred[:,:,1], scaled_obs[:,:,0])
+    if ave_preds:
+        # taking average of prms-sntemp preds to see if training is better 
+        temp_minus1_mean = np.mean(x_pred[:,:,1], axis = 0)
+        temp_minus1_mean = np.tile(temp_minus1_mean, n_en).reshape((n_en, temp_minus1_mean.shape[0]))
+        x_pred[:,:,1] = temp_minus1_mean
+else: 
+    obs_array = data['obs_pred'] 
+    x_pred = data['x_pred'] 
+
     
 if doy_feat:
     x_pred = np.append(x_pred, doy_pred, axis = 2)
@@ -171,14 +202,17 @@ n_states_obs, n_step, tmp = obs_array.shape
 model_locations = data['model_locations'] # seg_id_nat of the stream segments 
 n_segs = len(model_locations)
 state_sd = np.repeat(temp_obs_sd, n_states_obs) # uncertainty around observations 
-dates = data['dates_pred'][1:data['dates_pred'].shape[0]]
+if include_ar1: 
+    dates = data['dates_pred'][1:data['dates_pred'].shape[0]]
+else: 
+    dates = data['dates_pred'] 
 
 # load LSTM states from trained model 
 h = np.load(out_h_file, allow_pickle=True)
 c = np.load(out_c_file, allow_pickle=True)
 
 if update_h_c:
-    n_states_est = 3 * len(model_locations) # number of states we're estimating (predictions, h, c) for x segments
+    n_states_est = 1 * len(model_locations) + (hidden_units * 2) * len(model_locations) # number of states we're estimating (predictions, h, c) for x segments
 else:
     n_states_est = len(model_locations) 
 
@@ -196,11 +230,15 @@ obs_mat, Y, Q, P, R, H = get_EnKF_matrices(obs_array = obs_array,
                                            n_en = n_en,
                                            state_sd = state_sd)
 
-# get long term error 
+# get long term error ; make this smarter based on hidden unit size & n_segs 
 Q_ave = get_model_error_matrix(n_states_est, 1, state_sd)
+h_sd = 0.02
+c_sd = 0.06
 if update_h_c: 
-    Q_ave[1,1,0] = 0.02
-    Q_ave[2,2,0] = 0.06
+    for i in range(n_segs, (n_segs + hidden_units)):
+        Q_ave[i,i,0] = h_sd 
+    for i in range((n_segs + hidden_units), Q_ave.shape[0]):
+        Q_ave[i,i,0] = c_sd 
 Q[:,:,0] = Q_ave[:,:,0]
 Q[:,:,1] = Q_ave[:,:,0]
 
@@ -217,7 +255,7 @@ if store_forecasts:
     
 # define LSTM model using previously trained model; use one model for making forecasts many days into the future and one for updating states (will only make predictions 1 timestep at a time) 
 if store_forecasts:
-    model_forecast = LSTMDA(1) # model that will make forecasts many days into future 
+    model_forecast = LSTMDA(hidden_units) # model that will make forecasts many days into future 
     model_forecast.load_weights(weights_dir)
     forecast_shape = (n_en * len(model_locations), 1, x_pred.shape[2]) 
     model_forecast.rnn_layer.build(input_shape=forecast_shape) # full timestep forecast 
@@ -240,7 +278,7 @@ if store_forecasts:
                                                  cur_valid_t = cur_t,
                                                  n_segs = n_segs)
         
-model_da = LSTMDA(1) # model that will make predictions only one day into future 
+model_da = LSTMDA(hidden_units) # model that will make predictions only one day into future 
 model_da.load_weights(weights_dir)
 da_drivers = x_pred[:,0,:].reshape((x_pred.shape[0],1,x_pred.shape[2])) # only single timestep for DA model
 da_shape = (n_en * len(model_locations), da_drivers.shape[1], da_drivers.shape[2])
@@ -258,7 +296,8 @@ if update_h_c:
             c = cur_c.numpy(),
             n_segs = n_segs,
             n_states_est = n_states_est,
-            n_en = n_en)
+            n_en = n_en,
+            hidden_units = hidden_units)
 else:
     cur_states = da_preds[:,0,:].reshape((n_segs,n_en))
     
@@ -287,6 +326,7 @@ if store_raw_states:
                 Y = Y_no_da,
                 n_segs = n_segs,
                 n_en = n_en,
+                hidden_units = hidden_units,
                 cur_step = t-1)
             model_da.rnn_layer.reset_states(states=[new_h, new_c]) 
     
@@ -302,7 +342,8 @@ if store_raw_states:
                     cur_c.numpy(),
                     n_segs,
                     n_states_est,
-                    n_en)
+                    n_en,
+                    hidden_units)
         else: 
             cur_states = cur_preds[:,0,:].reshape((n_segs,n_en))
         Y_no_da[:,t,:] = cur_states # storing in Y for EnKF updating 
@@ -314,9 +355,11 @@ if store_forecasts:
 for t in range(1, n_step):
     print(dates[t])
     
-    # update yesterday's temperature driver from Y; need to scale first though 
-    scaled_seg_tave_water = (Y[0:n_segs,t-1,:].reshape(n_en) - seg_tave_water_mean) / (seg_tave_water_std + 1e-10)
-    x_pred[:,t,1] = scaled_seg_tave_water
+    if include_ar1: 
+        # update yesterday's temperature driver from Y; need to scale first though 
+        #scaled_seg_tave_water = (Y[0:n_segs,t-1,:].reshape(n_en) - seg_tave_water_mean) / (seg_tave_water_std + 1e-10)
+        scaled_seg_tave_water = (Y[0:n_segs,t-1,:].reshape(n_en) - obs_mean) / (obs_std + 1e-10)
+        x_pred[:,t,1] = scaled_seg_tave_water
     
     if update_h_c:
         # update lstm with h & c states stored in Y from previous timestep 
@@ -324,6 +367,7 @@ for t in range(1, n_step):
                 Y = Y,
                 n_segs = n_segs,
                 n_en = n_en,
+                hidden_units = hidden_units, 
                 cur_step = t-1)
         model_da.rnn_layer.reset_states(states=[new_h, new_c]) 
     if store_forecasts:
@@ -333,8 +377,9 @@ for t in range(1, n_step):
             cur_t = t + tt
             forecast_drivers = x_pred[:,cur_t,:].reshape((x_pred.shape[0], 1, x_pred.shape[2]))
             if tt > 0: 
-                scaled_seg_tave_water = (Y_forecasts[0:n_segs,t,tt-1,:].reshape(n_en) - seg_tave_water_mean) / (seg_tave_water_std + 1e-10)
-                forecast_drivers[:,0,1] = scaled_seg_tave_water
+                if include_ar1: 
+                    scaled_seg_tave_water = (Y_forecasts[0:n_segs,t,tt-1,:].reshape(n_en) - obs_mean) / (obs_std + 1e-10)
+                    forecast_drivers[:,0,1] = scaled_seg_tave_water
             forecast_preds = model_forecast.predict(forecast_drivers, batch_size = n_en * n_segs)
             #cur_forecast = get_forecast_preds(preds = forecast_preds,
              #                                 n_segs = n_segs,
@@ -365,7 +410,8 @@ for t in range(1, n_step):
                     cur_c.numpy(),
                     n_segs,
                     n_states_est,
-                    n_en)
+                    n_en,
+                    hidden_units)
     else: 
         cur_states = cur_preds[:,0,:].reshape((n_segs,n_en))
     Y[:,t,:] = cur_states # storing in Y for EnKF updating 
@@ -430,6 +476,8 @@ for t in range(1, n_step):
         if force_pos: 
             Y[0:n_segs,t,:] = np.where(Y[0:n_segs,t,:]<0,0,Y[0:n_segs,t,:])
     
+
+
 if store_forecasts & store_raw_states:
     out = {
     "Y": Y,
@@ -442,6 +490,9 @@ if store_forecasts & store_raw_states:
     "dates": dates,
     "model_locations": model_locations,
     "obs_orig": obs_mat_orig,
+    "obs_trn": obs_trn,
+    "trn_preds": trn_preds,
+    "trn_dates": data['dates_trn'][1:data['dates_trn'].shape[0]],
     }
 elif not store_forecasts & store_raw_states: 
     out = {
@@ -454,6 +505,9 @@ elif not store_forecasts & store_raw_states:
     "dates": dates,
     "model_locations": model_locations,
     "obs_orig": obs_mat_orig,
+    "obs_trn": obs_trn,
+    "trn_preds": trn_preds,
+    "trn_dates": data['dates_trn'][1:data['dates_trn'].shape[0]],
     }
 else: 
     out = {
@@ -467,6 +521,6 @@ else:
     "obs_orig": obs_mat_orig,
     }
 
-out_file = '5_pgdl_pretrain/out/simple_lstm_da_%sepoch_%sbeta_%salpha_%shc.npz' % (n_epochs_fine, beta, alpha, update_h_c) 
+out_file = '5_pgdl_pretrain/out/simple_lstm_da_%sepoch_%sbeta_%salpha_%shc_%sAR1_%sHiddenUnits.npz' % (n_epochs_fine, beta, alpha, update_h_c, include_ar1, hidden_units) 
 np.savez(out_file, **out)
 

@@ -42,6 +42,7 @@ def get_nc_data(
     start_date_pred,
     end_date_pred,
     scale_data=False,
+    include_ar1=False,
 ):
     data = xr.open_dataset(var_file)  # open netcdf file with xarray 
     # make sure the indices are in the same order
@@ -75,7 +76,7 @@ def get_nc_data(
         data_pred, _, _ = scale(data_pred, mean, std)
     
     data.close()
-    if scale_data:
+    if scale_data and include_ar1:
         return data_trn, data_pred, seg_tave_water_mean, seg_tave_water_std
     else: 
         return data_trn, data_pred 
@@ -89,6 +90,7 @@ def prep_one_var_lstm_da(
     start_date_pred,
     end_date_pred,
     scale_data=False,
+    include_ar1=False,
 ):
     data = xr.open_zarr(var_file)
     # make sure the indices are in the same order
@@ -108,7 +110,13 @@ def prep_one_var_lstm_da(
     if scale_data:
         data_trn, mean, std = scale(data_trn)
         data_pred, _, _ = scale(data_pred, mean, std)
-    return data_trn, data_pred
+    if include_ar1:
+        data_dont_use, mean, std = scale(data_trn)
+        std = np.array(std['temp_c'])
+        mean = np.array(mean['temp_c'])
+        return data_trn, data_pred, mean, std
+    else: 
+        return data_trn, data_pred
 
 
 def fmt_dataset(dataset):
@@ -128,17 +136,32 @@ def prep_data_lstm_da(
     obs_vars = ["temp_c"], 
     out_file=None,
     n_en = 1, # number of ensembles for DA - creating n_en batches 
+    include_ar1 = False, # include ar1 term or not 
 ):
-    x_trn, x_pred, seg_tave_water_mean, seg_tave_water_std = get_nc_data(
-        driver_file,
-        x_vars,
-        seg_id,
-        start_date_trn,
-        end_date_trn,
-        start_date_pred,
-        end_date_pred,
-        scale_data=True,
-    )
+    if include_ar1: 
+        x_trn, x_pred, seg_tave_water_mean, seg_tave_water_std = get_nc_data(
+            driver_file,
+            x_vars,
+            seg_id,
+            start_date_trn,
+            end_date_trn,
+            start_date_pred,
+            end_date_pred,
+            scale_data=True,
+            include_ar1 = include_ar1,
+        )
+    else: 
+        x_trn, x_pred = get_nc_data(
+            driver_file,
+            x_vars,
+            seg_id,
+            start_date_trn,
+            end_date_trn,
+            start_date_pred,
+            end_date_pred,
+            scale_data=True,
+            include_ar1 = include_ar1,
+        )
     y_trn, y_pred = get_nc_data(
         driver_file,
         y_vars,
@@ -149,16 +172,30 @@ def prep_data_lstm_da(
         end_date_pred,
         scale_data=False,
     )
-    obs_trn, obs_pred = prep_one_var_lstm_da(
-        obs_temp_file,
-        obs_vars,
-        seg_id,
-        start_date_trn,
-        end_date_trn,
-        start_date_pred,
-        end_date_pred,
-        scale_data=False,
-    )
+    if include_ar1: 
+        obs_trn, obs_pred, obs_mean, obs_std = prep_one_var_lstm_da(
+            obs_temp_file,
+            obs_vars,
+            seg_id,
+            start_date_trn,
+            end_date_trn,
+            start_date_pred,
+            end_date_pred,
+            scale_data=False,
+            include_ar1 = include_ar1,
+        )
+    else: 
+        obs_trn, obs_pred = prep_one_var_lstm_da(
+            obs_temp_file,
+            obs_vars,
+            seg_id,
+            start_date_trn,
+            end_date_trn,
+            start_date_pred,
+            end_date_pred,
+            scale_data=False,
+            include_ar1 = include_ar1,
+        )
     
     dates_trn = obs_trn.date.values
     dates_pred = obs_pred.date.values
@@ -228,22 +265,38 @@ def prep_data_lstm_da(
     obs_pred = fmt_dataset(obs_pred)
     obs_pred = np.moveaxis(obs_pred, 0, -1)
     obs_pred = np.moveaxis(obs_pred, 1, 0)  # should now be in shape of [nseg, seq_len, nfeats]
-    
-    data = {
-        "x_trn": x_trn_out,
-        "x_pred": x_pred_out,
-        "dates_trn": dates_trn,
-        "dates_pred": dates_pred,
-        "model_locations": seg_id, 
-        "y_trn": y_trn_out,
-        "y_pred": y_pred_out,
-        "obs_trn": obs_trn,
-        "obs_pred": obs_pred,
-        "seg_tave_water_mean": seg_tave_water_mean,
-        "seg_tave_water_std": seg_tave_water_std,
-        "doy_trn": doy_trn,
-        "doy_pred": doy_pred,
-    }
+    if include_ar1:
+        data = {
+            "x_trn": x_trn_out,
+            "x_pred": x_pred_out,
+            "dates_trn": dates_trn,
+            "dates_pred": dates_pred,
+            "model_locations": seg_id, 
+            "y_trn": y_trn_out,
+            "y_pred": y_pred_out,
+            "obs_trn": obs_trn,
+            "obs_pred": obs_pred,
+            "seg_tave_water_mean": seg_tave_water_mean,
+            "seg_tave_water_std": seg_tave_water_std,
+            "obs_mean": obs_mean,
+            "obs_std": obs_std, 
+            "doy_trn": doy_trn,
+            "doy_pred": doy_pred,
+        }
+    else: 
+        data = {
+            "x_trn": x_trn_out,
+            "x_pred": x_pred_out,
+            "dates_trn": dates_trn,
+            "dates_pred": dates_pred,
+            "model_locations": seg_id, 
+            "y_trn": y_trn_out,
+            "y_pred": y_pred_out,
+            "obs_trn": obs_trn,
+            "obs_pred": obs_pred,
+            "doy_trn": doy_trn,
+            "doy_pred": doy_pred,
+        }
     if out_file:
         np.savez_compressed(out_file, **data)
     return data

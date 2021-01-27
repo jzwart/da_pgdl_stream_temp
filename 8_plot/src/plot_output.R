@@ -5,7 +5,7 @@ library(ggplot2)
 library(reticulate)
 np = import('numpy')
 
-d = np$load('5_pgdl_pretrain/out/simple_lstm_da_100epoch_0.5beta_0.9alpha_Truehc.npz')
+d = np$load('5_pgdl_pretrain/out/simple_lstm_da_100epoch_0.5beta_0.9alpha_Falsehc_TrueAR1_2HiddenUnits.npz')
 
 obs = d$f[['obs']] #[,,1:10]
 obs_withheld = d$f[['obs_orig']] # if we withhold observations from DA steps
@@ -23,6 +23,9 @@ Y_no_da = d$f[['Y_no_da']]
 Y_forecast = d$f[['Y_forecasts']]
 f_horizon = dim(Y_forecast)[3]
 #true = d$f[['true']]
+trn_preds = d$f[['trn_preds']]
+obs_trn = d$f[['obs_trn']]
+dates_trn = d$f[['trn_dates']]
 
 add_text <- function(text, location="topright"){
   legend(location,legend=text, bty ="n", pch=NA)
@@ -71,6 +74,41 @@ for(j in cur_model_idxs){
 }
 
 
+
+#lordville site is seg_id_nat == 1573; model_idx = 224; 1574 & 1575 are directly upstream of 1573 and 1577 is directly downstream of 1573
+# cur_model_idxs = '1573'
+for(j in cur_model_idxs){
+  # obs[,1,1]
+  mean_pred = trn_preds[1,,1]
+  cur_obs = obs_trn[1,,1]
+
+  #test period
+  matrix_loc = which(cur_model_idxs == j)
+  mean_test = rowMeans(Y_no_da[matrix_loc,,])
+
+  trn_rmse = round(sqrt(mean((mean_pred - cur_obs)^2, na.rm = T)), 2)
+  test_rmse = round(sqrt(mean((mean_test - obs[matrix_loc,1,])^2, na.rm = T)), 2)
+
+  all_preds = c(mean_pred, mean_test)
+  all_dates = c(dates_trn, dates)
+
+  windows(width = 14, height = 10)
+  par(mar = c(5,6,4,3), mfrow = c(2,1))
+  plot(all_preds ~ all_dates, type = 'l',
+       ylab = 'Stream Temp (C)', xlab = '', lty=0,
+       ylim = c(0,25), #ylim =range(c(Y[matrix_loc,,], obs[matrix_loc,1,]), na.rm = T), #, Y_no_assim[matrix_loc,,])
+       cex.axis = 2, cex.lab =2, main = sprintf('model idx %s', j))
+  points(cur_obs ~ dates_trn, col = 'red', pch = 16, cex = 1.2)
+  points(obs[matrix_loc,1,] ~ dates, col = 'red', pch = 16, cex = 1.2)
+  lines(mean_pred ~ dates_trn, lwd = 2)
+  lines(mean_test ~ dates, lwd = 2, col = 'blue')
+
+  plot(mean_pred~cur_obs, xlab= 'Water Temp Obs (C)', ylab = 'Water Temp Preds (C)',
+       cex.axis = 2, cex.lab =2)
+  points(mean_test ~ obs[matrix_loc,1,], col = 'blue')
+  abline(0,1,col='red')
+  add_text(sprintf('RMSE Trn: %s\nRMSE Test: %s', temp_rmse,test_rmse), location = 'topleft')
+}
 
 
 # RMSE
@@ -199,7 +237,7 @@ for(j in cur_model_idxs){
 
 # plot forecasts
 Y_forecast[,,1,] = Y[1:n_segs,,]
-issue_times = 300:330
+issue_times = 100:130
 for(j in cur_model_idxs){
   # obs[,1,1]
   matrix_loc = which(cur_model_idxs == j)
