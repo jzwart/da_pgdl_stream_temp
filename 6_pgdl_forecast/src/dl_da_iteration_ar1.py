@@ -19,7 +19,14 @@ def dl_da_iter(
         temp_obs_sd,
         n_en,
         process_error,
-        n_epochs_fine):
+        n_epochs_fine,
+        learn_rate_fine,
+        beta,
+        alpha,
+        psi,
+        seg_tave_water_mean,
+        seg_tave_water_std,
+        force_pos):
     
     obs_array = obs_trn
     n_states_obs, n_step, tmp = obs_array.shape
@@ -217,11 +224,16 @@ def dl_da_iter(
             cur_Y = Y[0:n_segs:,step,:].reshape((new_y.shape[0], new_y.shape[2]))
             Y_mean = cur_Y.mean(axis = 1).reshape((new_y.shape[0], 1)) # calculating mean of state / param estimates 
             Y_mean = np.repeat(Y_mean, n_en, axis = 1)
-            new_y[:,step,:] = cur_Y
+            temp_minus1_mean = np.repeat(np.mean(x_trn[:,step,1],axis=0),n_en)
+            x_trn[:,step,1] = temp_minus1_mean
+            new_y[:,step,:] = Y_mean
             P_diag[:,step] = np.diag(P[0:n_segs,0:n_segs,step]) 
         new_y = np.moveaxis(new_y, 2, 0)
         new_y = np.moveaxis(new_y, 1, 2)
         P_diag_inv = 1/P_diag  # inverse of P are the weights 
+        ########### multiply by H to only weight observed periods ############
+        new_H = H[0:n_segs,0:n_segs,:].reshape((n_segs,n_step))
+        P_diag_inv = P_diag_inv * new_H
         P_diag_inv = np.repeat(P_diag_inv, n_en, axis = 0).reshape((new_y.shape))
         # need to concatonate weights onto y_true when using weighted rmse
         new_y_cat = np.concatenate([new_y, P_diag_inv], axis = 2)

@@ -5,7 +5,7 @@ library(ggplot2)
 library(reticulate)
 np = import('numpy')
 
-d = np$load('5_pgdl_pretrain/out/simple_lstm_da_100epoch_0.5beta_0.9alpha.npz')
+d = np$load('5_pgdl_pretrain/out/simple_lstm_da_100epoch_0.5beta_0.9alpha_Truehc.npz')
 
 obs = d$f[['obs']] #[,,1:10]
 obs_withheld = d$f[['obs_orig']] # if we withhold observations from DA steps
@@ -13,7 +13,7 @@ Y = d$f[['Y']]#[,1:10,]
 R = d$f[['R']]#[,,1:10]
 Q = d$f[['Q']]
 P = d$f[['P']]
-n_en = 50
+n_en = dim(Y)[3]
 dates = d$f[['dates']]
 n_step = length(dates)
 cur_model_idxs = d$f[['model_locations']]
@@ -251,13 +251,13 @@ RMSE = function(m, o, na.rm = T){
   sqrt(mean((m - o)^2, na.rm = na.rm))
 }
 
-accuracy = out %>%
+accuracy_sum = out %>%
   group_by(lead_time) %>%
   summarise(DA = RMSE(mean_da_forecast, obs_temp),
             No_DA = RMSE(mean_pred_no_da, obs_temp)) %>%
   pivot_longer(cols = contains('DA'), names_to = 'forecast_type',values_to = 'rmse')
 
-ggplot(accuracy, aes(x = lead_time, y = rmse, group = forecast_type, color = forecast_type))+
+ggplot(accuracy_sum, aes(x = lead_time, y = rmse, group = forecast_type, color = forecast_type))+
   geom_line(size = 2) +
   geom_point(size = 3) +
   theme_minimal()+
@@ -269,3 +269,64 @@ ggplot(accuracy, aes(x = lead_time, y = rmse, group = forecast_type, color = for
 #plot((accuracy$rmse_no_da-accuracy$rmse_da) ~ accuracy$lead_time, type = 'l', lwd=3,
 #    ylim = c(0, max(accuracy$rmse_no_da-accuracy$rmse_da)))
 #abline(0,0,lty=2, lwd=2)
+
+accuracy = out %>%
+  #group_by(issue_date) %>%
+  #mutate(No_DA_rmse = RMSE(mean_pred_no_da, obs_temp)) %>% ungroup() %>%
+  group_by(issue_date, lead_time) %>%
+  mutate(DA = abs(mean_da_forecast- obs_temp),
+         No_DA_rmse = abs(mean_pred_no_da- obs_temp)) %>% ungroup() %>%
+  mutate(rmse_improve = (No_DA_rmse - DA))
+
+windows()
+ggplot(accuracy, aes(x = issue_date, y = rmse_improve, color = lead_time, group=  lead_time))+
+  geom_point(size = 0) +
+  geom_line(size =1) +
+  theme_minimal()+
+  theme(axis.text = element_text(size =14),
+        axis.title = element_text(size = 16))+
+  xlab('Date') +
+  ylab('No DA error - DA error (C)')+
+  geom_abline(slope = 0, intercept = 0, linetype = 'dashed', size = 2)
+
+ggplot(accuracy, aes(x = No_DA_rmse, y = rmse_improve, color = lead_time))+
+  geom_point(size = 3) +
+  theme_minimal()+
+  theme(axis.text = element_text(size =14),
+        axis.title = element_text(size = 16))+
+  xlab('LSTM Absolute Error (C)') +
+  ylab('No DA error - DA error (C)') +
+  geom_abline(slope = 0, intercept = 0, linetype = 'dashed', size = 2)+
+  geom_abline(slope = 1, intercept = 0)
+
+ggplot(dplyr::filter(accuracy,lead_time <4, No_DA_rmse <3), aes(x = No_DA_rmse, y = rmse_improve, color = lead_time, group = lead_time))+
+  geom_point(size = 3, alpha = .4) +
+  theme_minimal()+
+  theme(axis.text = element_text(size =14),
+        axis.title = element_text(size = 16))+
+  xlab('LSTM Absolute Error (C)') +
+  ylab('No DA error - DA error (C)') +
+  geom_abline(slope = 0, intercept = 0, linetype = 'dashed', size = 2)+
+  geom_abline(slope = 1, intercept = 0) +
+  geom_smooth(method = 'lm', se = F, size =2)
+
+ggplot(dplyr::filter(accuracy,lead_time == 1), aes(x = issue_date, y = DA))+
+  geom_line() +
+  theme_minimal() +
+  theme(axis.text = element_text(size =14),
+        axis.title = element_text(size = 16))+
+  xlab('Date') +
+  ylab('DA error (C)')+
+  geom_abline(slope = 0, intercept = mean(accuracy$DA[accuracy$lead_time ==1],na.rm = T),
+              linetype ='dashed')
+
+ggplot(dplyr::filter(accuracy,lead_time %in% c(0,1,2,3)), aes(x = valid_time, y = mean_da_forecast, color = lead_time, group = lead_time))+
+  geom_line() +
+  geom_point(data = dplyr::filter(accuracy,lead_time %in% c(0,1,2,3)), aes(x = valid_time, y = obs_temp))+
+  geom_line(data = dplyr::filter(accuracy, lead_time %in% c(0,1,2,3)), aes(x = valid_time, y = mean_pred_no_da), color = 'red') +
+  theme_minimal() +
+  theme(axis.text = element_text(size =14),
+        axis.title = element_text(size = 16))+
+  xlab('Date') +
+  ylab('Water temperature (C)')
+

@@ -52,7 +52,7 @@ def get_nc_data(
     dates = byte_to_str(dates)
     trn_date_idxs = np.array(np.where(np.isin(dates, [start_date_trn,end_date_trn]))).reshape(2).tolist()
     pred_date_idxs = np.array(np.where(np.isin(dates, [start_date_pred,end_date_pred]))).reshape(2).tolist()
-    timedelta = pd.timedelta_range(start='0 days', end = '5112 days') # need to make this dynamic based on netcdf file
+    timedelta = pd.timedelta_range(start='0 days', end = '12417 days') # need to make this dynamic based on netcdf file
     trn_date_idxs = timedelta[trn_date_idxs]
     pred_date_idxs = timedelta[pred_date_idxs]
 
