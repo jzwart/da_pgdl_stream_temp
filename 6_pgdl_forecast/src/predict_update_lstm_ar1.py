@@ -11,11 +11,11 @@ from dl_da_iteration_ar1 import *
 
 train_dir = '5_pgdl_pretrain/out'
 pre_train = False # T/F if to pre-train with SNTemp output 
-fine_tune = True # T/F if to do fine-tune training on temeprature observations 
+fine_tune = False # T/F if to do fine-tune training on temeprature observations 
 fine_tune_iter = False 
-process_error = True # T/F add process error during DA step 
+process_error = False # T/F add process error during DA step 
 store_raw_states = True # T/F store the LSTM states without data assimilation 
-store_forecasts = True # T/F store predictions that are in the future 
+store_forecasts = False # T/F store predictions that are in the future 
 force_pos = True # T/F force estimates to be positive 
 update_h_c = False # T/F update h and c states with DA 
 include_ar1 = True # T/F include yesterday's water temp as driver 
@@ -43,8 +43,15 @@ cycles = 10 # number of cycles for DA-DL routine
 weights_dir = '5_pgdl_pretrain/out/lstm_da_trained_wgts/'
 out_h_file = '5_pgdl_pretrain/out/h.npy' 
 out_c_file = '5_pgdl_pretrain/out/c.npy' 
+da_h_file = '5_pgdl_pretrain/out/h_da.npy'
+da_c_file = '5_pgdl_pretrain/out/c_da.npy'
+raw_h_file = '5_pgdl_pretrain/out/h_raw.npy'
+raw_c_file = '5_pgdl_pretrain/out/c_raw.npy'
+forecast_h_file = '5_pgdl_pretrain/out/h_forecast.npy'
+forecast_c_file = '5_pgdl_pretrain/out/c_forecast.npy'
 
 seg_ids = [1573] # needs to be a list of seg_ids (even if one segment)
+n_segs = len(seg_ids)
 
 if include_ar1:
     x_vars = ["seg_tave_air", "seg_tave_water"]
@@ -255,28 +262,44 @@ if store_forecasts:
     
 # define LSTM model using previously trained model; use one model for making forecasts many days into the future and one for updating states (will only make predictions 1 timestep at a time) 
 if store_forecasts:
-    model_forecast = LSTMDA(hidden_units) # model that will make forecasts many days into future 
-    model_forecast.load_weights(weights_dir)
-    forecast_shape = (n_en * len(model_locations), 1, x_pred.shape[2]) 
-    model_forecast.rnn_layer.build(input_shape=forecast_shape) # full timestep forecast 
-    model_forecast.rnn_layer.reset_states(states=[h, c])
-    for tt in range(f_horizon):
-        cur_t = 0+tt
-        forecast_drivers = x_pred[:,cur_t,:].reshape((x_pred.shape[0], 1, x_pred.shape[2]))
-        forecast_preds = model_forecast.predict(forecast_drivers, batch_size = n_en * n_segs)
-        #cur_forecast = get_forecast_preds(preds = forecast_preds,
-         #                                 n_segs = n_segs,
-          #                                n_states_obs = n_states_obs, 
-           #                               n_en = n_en,
-            #                              f_horizon = f_horizon)
-        Y_forecasts[:,0,tt,:] = forecast_preds[:,0,:].reshape((n_segs,n_en)) #cur_forecast
-        Y_forecasts = add_process_error_forecast(Y = Y_forecasts, 
-                                                 Q = Q,
-                                                 H = H,
-                                                 n_en = n_en,
-                                                 cur_step = 0,
-                                                 cur_valid_t = cur_t,
-                                                 n_segs = n_segs)
+    Y_forecasts = forecast(Y_forecasts,
+                            weights_dir,
+                            h,
+                            c,
+                            hidden_units,
+                            n_en,
+                            model_locations,
+                            n_segs,
+                            x_pred,
+                            f_horizon,
+                            0,
+                            Q,
+                            H,
+                            force_pos,
+                            include_ar1,
+                            obs_mean,
+                            obs_std,
+                            forecast_h_file,
+                            forecast_c_file)
+    
+    #model_forecast = LSTMDA(hidden_units) # model that will make forecasts many days into future 
+    #model_forecast.load_weights(weights_dir)
+    #forecast_shape = (n_en * len(model_locations), 1, x_pred.shape[2]) 
+    #model_forecast.rnn_layer.build(input_shape=forecast_shape) # full timestep forecast 
+    #model_forecast.rnn_layer.reset_states(states=[h, c])
+    #for tt in range(f_horizon):
+     #   cur_t = 0+tt
+      #  forecast_drivers = x_pred[:,cur_t,:].reshape((x_pred.shape[0], 1, x_pred.shape[2]))
+       # forecast_preds = model_forecast.predict(forecast_drivers, batch_size = n_en * n_segs)
+       
+       # Y_forecasts[:,0,tt,:] = forecast_preds[:,0,:].reshape((n_segs,n_en)) #cur_forecast
+       # Y_forecasts = add_process_error_forecast(Y = Y_forecasts, 
+        #                                         Q = Q,
+         #                                        H = H,
+          #                                       n_en = n_en,
+           #                                      cur_step = 0,
+            #                                     cur_valid_t = cur_t,
+             #                                    n_segs = n_segs)
         
 model_da = LSTMDA(hidden_units) # model that will make predictions only one day into future 
 model_da.load_weights(weights_dir)
@@ -288,12 +311,14 @@ model_da.rnn_layer.build(input_shape=da_shape)
 model_da.rnn_layer.reset_states(states=[h, c])
 # make predictions and store states for updating with EnKF 
 da_preds = model_da.predict(da_drivers, batch_size = n_en * n_segs) # make this dynamic batch size based on n_en
+da_h, da_c = model_da.rnn_layer.states
+np.save(da_h_file, da_h.numpy())
+np.save(da_c_file, da_c.numpy())
 if update_h_c:
-    cur_h, cur_c = model_da.rnn_layer.states 
     cur_states = combine_lstm_states(
             preds = da_preds[:,0,:], 
-            h = cur_h.numpy(), 
-            c = cur_c.numpy(),
+            h = da_h.numpy(), 
+            c = da_c.numpy(),
             n_segs = n_segs,
             n_states_est = n_states_est,
             n_en = n_en,
@@ -302,14 +327,38 @@ else:
     cur_states = da_preds[:,0,:].reshape((n_segs,n_en))
     
 Y[:,0,:] = cur_states # storing in Y for EnKF updating 
-if store_raw_states: 
+
+if store_raw_states: # need to create another model because using the same model messes with state predictions after running through prediction time series 
+    model_raw_states = LSTMDA(hidden_units)
+    model_raw_states.load_weights(weights_dir)
+    model_raw_states.rnn_layer.build(input_shape=da_shape)
+    # initialize the states with the previously trained states 
+    model_raw_states.rnn_layer.reset_states(states=[h, c])
+    # make predictions and store states for updating with EnKF 
+    raw_states_preds = model_raw_states.predict(da_drivers, batch_size = n_en * n_segs) # make this dynamic batch size based on n_en
+    raw_h, raw_c = model_raw_states.rnn_layer.states
+    np.save(raw_h_file, raw_h.numpy())
+    np.save(raw_c_file, raw_c.numpy())
+    if update_h_c:
+        cur_states = combine_lstm_states(
+                preds = raw_states_preds[:,0,:], 
+                h = raw_h.numpy(), 
+                c = raw_c.numpy(),
+                n_segs = n_segs,
+                n_states_est = n_states_est,
+                n_en = n_en,
+                hidden_units = hidden_units)
+    else:
+        cur_states = raw_states_preds[:,0,:].reshape((n_segs,n_en))
+    
     Y_no_da[:,0,:] = cur_states 
     
-Y = add_process_error(Y = Y, 
-                      Q = Q,
-                      H = H,
-                      n_en = n_en,
-                      cur_step = 0)
+if process_error:
+    Y = add_process_error(Y = Y, 
+                          Q = Q,
+                          H = H,
+                          n_en = n_en,
+                          cur_step = 0)
 cur_deviations = get_ens_deviate(
         Y = Y, 
         n_en = n_en,
@@ -318,28 +367,33 @@ P[:,:,0] = get_covar(deviations = cur_deviations, n_en = n_en)
 
 
 if store_raw_states: 
-    for t in range(1, n_step):
+    for t in range(1, 10):
         print(dates[t])
         # update lstm with h & c states stored in Y from previous timestep 
+        raw_h = np.load(raw_h_file, allow_pickle=True)
+        raw_c = np.load(raw_c_file, allow_pickle=True)
         if update_h_c:
-            new_h, new_c = get_updated_lstm_states(
+            raw_h, raw_c = get_updated_lstm_states(
                 Y = Y_no_da,
                 n_segs = n_segs,
                 n_en = n_en,
                 hidden_units = hidden_units,
                 cur_step = t-1)
-            model_da.rnn_layer.reset_states(states=[new_h, new_c]) 
+            
+        model_raw_states.rnn_layer.reset_states(states=[raw_h, raw_c]) 
     
         # make predictions  and store states 
         cur_drivers = x_pred[:,t,:].reshape((x_pred.shape[0],1,x_pred.shape[2]))
-        cur_preds = model_da.predict(cur_drivers, batch_size = n_en * n_segs)
+        cur_preds = model_raw_states.predict(cur_drivers, batch_size = n_en * n_segs)
+        raw_h, raw_c = model_raw_states.rnn_layer.states
+        np.save(raw_h_file, raw_h.numpy())
+        np.save(raw_c_file, raw_c.numpy())
         
         if update_h_c:
-            cur_h, cur_c = model_da.rnn_layer.states 
             cur_states = combine_lstm_states(
                     cur_preds[:,0,:],
-                    cur_h.numpy(), 
-                    cur_c.numpy(),
+                    raw_h.numpy(), 
+                    raw_c.numpy(),
                     n_segs,
                     n_states_est,
                     n_en,
@@ -352,62 +406,41 @@ if store_raw_states:
 # loop through forecast time steps and make forecasts & update with EnKF 
 if store_forecasts:
     n_step = n_step - f_horizon
-for t in range(1, n_step):
+for t in range(1, 10):
     print(dates[t])
-    
-    if include_ar1: 
+    da_h = np.load(da_h_file, allow_pickle=True)
+    da_c = np.load(da_c_file, allow_pickle=True)
+    #forecast_h = np.load(da_h_file, allow_pickle=True)
+    #forecast_c = np.load(da_c_file, allow_pickle=True)
+    #if include_ar1: 
         # update yesterday's temperature driver from Y; need to scale first though 
-        #scaled_seg_tave_water = (Y[0:n_segs,t-1,:].reshape(n_en) - seg_tave_water_mean) / (seg_tave_water_std + 1e-10)
-        scaled_seg_tave_water = (Y[0:n_segs,t-1,:].reshape(n_en) - obs_mean) / (obs_std + 1e-10)
-        x_pred[:,t,1] = scaled_seg_tave_water
+     #   scaled_seg_tave_water = (Y[0:n_segs,t-1,:].reshape(n_en) - obs_mean) / (obs_std + 1e-10)
+      #  x_pred[:,t,1] = np.mean(scaled_seg_tave_water)
     
     if update_h_c:
         # update lstm with h & c states stored in Y from previous timestep 
-        new_h, new_c = get_updated_lstm_states(
+        da_h, da_c = get_updated_lstm_states(
                 Y = Y,
                 n_segs = n_segs,
                 n_en = n_en,
                 hidden_units = hidden_units, 
                 cur_step = t-1)
-        model_da.rnn_layer.reset_states(states=[new_h, new_c]) 
-    if store_forecasts:
-        if update_h_c:
-            model_forecast.rnn_layer.reset_states(states=[new_h, new_c])
-        for tt in range(f_horizon):
-            cur_t = t + tt
-            forecast_drivers = x_pred[:,cur_t,:].reshape((x_pred.shape[0], 1, x_pred.shape[2]))
-            if tt > 0: 
-                if include_ar1: 
-                    scaled_seg_tave_water = (Y_forecasts[0:n_segs,t,tt-1,:].reshape(n_en) - obs_mean) / (obs_std + 1e-10)
-                    forecast_drivers[:,0,1] = scaled_seg_tave_water
-            forecast_preds = model_forecast.predict(forecast_drivers, batch_size = n_en * n_segs)
-            #cur_forecast = get_forecast_preds(preds = forecast_preds,
-             #                                 n_segs = n_segs,
-              #                                n_states_obs = n_states_obs, 
-               #                               n_en = n_en,
-                #                              f_horizon = f_horizon)
-            Y_forecasts[:,t,tt,:] = forecast_preds[:,0,:].reshape((n_segs,n_en)) #cur_forecast
-            Y_forecasts = add_process_error_forecast(Y = Y_forecasts, 
-                                                 Q = Q,
-                                                 H = H,
-                                                 n_en = n_en,
-                                                 cur_step = t,
-                                                 cur_valid_t = tt,
-                                                 n_segs = n_segs)
-            if force_pos: 
-                Y_forecasts[0:n_segs,t,tt,:] = np.where(Y_forecasts[0:n_segs,t,tt,:]<0,0,Y_forecasts[0:n_segs,t,tt,:])
-    
-
+    model_da.rnn_layer.reset_states(states=[da_h, da_c]) 
+    #if store_forecasts:
+     #   model_forecast.rnn_layer.reset_states(states=[forecast_h, forecast_c])
+        
     # make predictions  and store states for updating with EnKF 
     cur_drivers = x_pred[:,t,:].reshape((x_pred.shape[0],1,x_pred.shape[2]))
     cur_preds = model_da.predict(cur_drivers, batch_size = n_en * n_segs)
+    da_h, da_c = model_da.rnn_layer.states
+    np.save(da_h_file, da_h.numpy())
+    np.save(da_c_file, da_c.numpy())
 
     if update_h_c: 
-        cur_h, cur_c = model_da.rnn_layer.states 
         cur_states = combine_lstm_states(
                     cur_preds[:,0,:],
-                    cur_h.numpy(), 
-                    cur_c.numpy(),
+                    da_h.numpy(), 
+                    da_c.numpy(),
                     n_segs,
                     n_states_est,
                     n_en,
@@ -417,6 +450,46 @@ for t in range(1, n_step):
     Y[:,t,:] = cur_states # storing in Y for EnKF updating 
     if force_pos: 
         Y[0:n_segs,t,:] = np.where(Y[0:n_segs,t,:]<0,0,Y[0:n_segs,t,:])
+        
+    #if store_forecasts:
+     #   model_forecast = LSTMDA(hidden_units) # have to make a new model every time 
+      #  model_forecast.load_weights(weights_dir)
+       # forecast_shape = (n_en * len(model_locations), 1, x_pred.shape[2]) 
+        #model_forecast.rnn_layer.build(input_shape=forecast_shape) # full timestep forecast 
+        #cur_h, cur_c = model_da.rnn_layer.states 
+        #model_forecast.rnn_layer.reset_states(states=[cur_h.numpy(), cur_c.numpy()])
+        #if update_h_c:
+            #model_forecast.rnn_layer.reset_states(states=[new_h, new_c])
+        #for tt in range(f_horizon):
+         #   cur_t = t + tt
+          #  forecast_drivers = x_pred[:,cur_t,:].reshape((x_pred.shape[0], 1, x_pred.shape[2]))
+           # if tt > 0: 
+            #    if include_ar1: 
+             #       scaled_forecast_water = (Y_forecasts[0:n_segs,t,tt-1,:].reshape(n_en) - obs_mean) / (obs_std + 1e-10)
+              #      forecast_drivers[:,0,1] = np.mean(scaled_forecast_water)
+               # forecast_h = np.load(forecast_h_file, allow_pickle=True)
+               # forecast_c = np.load(forecast_c_file, allow_pickle=True)
+               # model_forecast.rnn_layer.reset_states(states=[forecast_h, forecast_c])
+            #forecast_preds = model_forecast.predict(forecast_drivers, batch_size = n_en * n_segs)
+            #forecast_h, forecast_c = model_forecast.rnn_layer.states
+            #np.save(forecast_h_file, forecast_h.numpy())
+            #np.save(forecast_c_file, forecast_c.numpy())
+            #cur_forecast = get_forecast_preds(preds = forecast_preds,
+             #                                 n_segs = n_segs,
+              #                                n_states_obs = n_states_obs, 
+               #                               n_en = n_en,
+                #                              f_horizon = f_horizon)
+            #Y_forecasts[:,t,tt,:] = forecast_preds[:,0,:].reshape((n_segs,n_en)) #cur_forecast
+            #Y_forecasts = add_process_error_forecast(Y = Y_forecasts, 
+             #                                    Q = Q,
+              #                                   H = H,
+               #                                  n_en = n_en,
+                #                                 cur_step = t,
+                 #                                cur_valid_t = tt,
+                  #                               n_segs = n_segs)
+            #if force_pos: 
+                #Y_forecasts[0:n_segs,t,tt,:] = np.where(Y_forecasts[0:n_segs,t,tt,:]<0,0,Y_forecasts[0:n_segs,t,tt,:])
+    
     
     if process_error: 
         # uncorrupted ensemble deviations before adding process error 
@@ -472,11 +545,90 @@ for t in range(1, n_step):
     any_obs = H[:,:,t] == 1 # are there any observations at this timestep? 
     if any_obs.any(): 
         print('updating with Kalman filter...') 
-        Y = kalman_filter(Y, R, obs_mat, H, n_en, t)
+        #Y = kalman_filter(Y, R, obs_mat, H, n_en, t)
         if force_pos: 
             Y[0:n_segs,t,:] = np.where(Y[0:n_segs,t,:]<0,0,Y[0:n_segs,t,:])
     
 
+#round two after DA step 
+# loop through forecast time steps and make forecasts & update with EnKF 
+if store_forecasts:
+    n_step = n_step - f_horizon
+for t in range(1, 10):
+    print(dates[t])
+    
+    if include_ar1: 
+        # update yesterday's temperature driver from Y; need to scale first though 
+        scaled_seg_tave_water = (Y[0:n_segs,t-1,:].reshape(n_en) - obs_mean) / (obs_std + 1e-10)
+        x_pred[:,t,1] = np.mean(scaled_seg_tave_water)
+    
+    if update_h_c:
+        # update lstm with h & c states stored in Y from previous timestep 
+        forecast_h, forecast_c = get_updated_lstm_states(
+                Y = Y,
+                n_segs = n_segs,
+                n_en = n_en,
+                hidden_units = hidden_units, 
+                cur_step = t-1)
+    if store_forecasts:
+        Y_forecasts = forecast(Y_forecasts,
+                            weights_dir,
+                            forecast_h,
+                            forecast_c,
+                            hidden_units,
+                            n_en,
+                            model_locations,
+                            n_segs,
+                            x_pred,
+                            f_horizon,
+                            t,
+                            Q,
+                            H,
+                            force_pos,
+                            include_ar1,
+                            obs_mean,
+                            obs_std,
+                            forecast_h_file,
+                            forecast_c_file)
+        
+        #model_forecast = LSTMDA(hidden_units) # have to make a new model every time 
+        #model_forecast.load_weights(weights_dir)
+        #forecast_shape = (n_en * len(model_locations), 1, x_pred.shape[2]) 
+        #model_forecast.rnn_layer.build(input_shape=forecast_shape) # full timestep forecast 
+        #model_forecast.rnn_layer.reset_states(states=[forecast_h,forecast_c])
+        #if update_h_c:
+            #model_forecast.rnn_layer.reset_states(states=[new_h, new_c])
+        #for tt in range(f_horizon):
+         #   cur_t = t + tt
+          #  forecast_drivers = x_pred[:,cur_t,:].reshape((x_pred.shape[0], 1, x_pred.shape[2]))
+           # if tt > 0: 
+            #    if include_ar1: 
+             #       scaled_forecast_water = (Y_forecasts[0:n_segs,t,tt-1,:].reshape(n_en) - obs_mean) / (obs_std + 1e-10)
+              #      forecast_drivers[:,0,1] = np.mean(scaled_forecast_water)
+               # forecast_h = np.load(forecast_h_file, allow_pickle=True)
+               # forecast_c = np.load(forecast_c_file, allow_pickle=True)
+               # model_forecast.rnn_layer.reset_states(states=[forecast_h, forecast_c])
+            #forecast_preds = model_forecast.predict(forecast_drivers, batch_size = n_en * n_segs)
+            #forecast_h, forecast_c = model_forecast.rnn_layer.states
+            #np.save(forecast_h_file, forecast_h.numpy())
+            #np.save(forecast_c_file, forecast_c.numpy())
+            #cur_forecast = get_forecast_preds(preds = forecast_preds,
+             #                                 n_segs = n_segs,
+              #                                n_states_obs = n_states_obs, 
+               #                               n_en = n_en,
+                #                              f_horizon = f_horizon)
+            #Y_forecasts[:,t,tt,:] = forecast_preds[:,0,:].reshape((n_segs,n_en)) #cur_forecast
+            #Y_forecasts = add_process_error_forecast(Y = Y_forecasts, 
+             #                                    Q = Q,
+              #                                   H = H,
+               #                                  n_en = n_en,
+                #                                 cur_step = t,
+                 #                                cur_valid_t = tt,
+                  #                               n_segs = n_segs)
+            #if force_pos: 
+             #   Y_forecasts[0:n_segs,t,tt,:] = np.where(Y_forecasts[0:n_segs,t,tt,:]<0,0,Y_forecasts[0:n_segs,t,tt,:])
+    
+    
 
 if store_forecasts & store_raw_states:
     out = {
@@ -490,9 +642,9 @@ if store_forecasts & store_raw_states:
     "dates": dates,
     "model_locations": model_locations,
     "obs_orig": obs_mat_orig,
-    "obs_trn": obs_trn,
-    "trn_preds": trn_preds,
-    "trn_dates": data['dates_trn'][1:data['dates_trn'].shape[0]],
+    #"obs_trn": obs_trn,
+    #"trn_preds": trn_preds,
+    #"trn_dates": data['dates_trn'][1:data['dates_trn'].shape[0]],
     }
 elif not store_forecasts & store_raw_states: 
     out = {
@@ -505,9 +657,25 @@ elif not store_forecasts & store_raw_states:
     "dates": dates,
     "model_locations": model_locations,
     "obs_orig": obs_mat_orig,
-    "obs_trn": obs_trn,
-    "trn_preds": trn_preds,
-    "trn_dates": data['dates_trn'][1:data['dates_trn'].shape[0]],
+    #"obs_trn": obs_trn,
+    #"trn_preds": trn_preds,
+    #"trn_dates": data['dates_trn'][1:data['dates_trn'].shape[0]],
+    }
+elif not store_raw_states & store_forecasts: 
+    out = {
+    "Y": Y,
+    #"Y_no_da": Y_no_da,
+    "Y_forecasts": Y_forecasts,
+    "obs": obs_mat,
+    "R": R,
+    "Q": Q,
+    "P": P,
+    "dates": dates,
+    "model_locations": model_locations,
+    "obs_orig": obs_mat_orig,
+    #"obs_trn": obs_trn,
+    #"trn_preds": trn_preds,
+    #"trn_dates": data['dates_trn'][1:data['dates_trn'].shape[0]],
     }
 else: 
     out = {

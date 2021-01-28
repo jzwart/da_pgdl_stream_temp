@@ -6,6 +6,9 @@ Created on Wed Dec 23 10:30:42 2020
 functions for updating LSTM states using ensemble Kalman filter 
 """
 import numpy as np 
+import sys
+sys.path.insert(1, '5_pgdl_pretrain/src')
+from LSTMDA import *
 
 def combine_lstm_states(
         preds,
@@ -553,3 +556,55 @@ def get_EnKF_matrices(
     
     return obs_mat, Y, Q, P, R, H 
 
+def forecast(
+        Y_forecasts,
+        weights_dir,
+        h,
+        c,
+        hidden_units,
+        n_en,
+        model_locations,
+        n_segs,
+        x_pred,
+        f_horizon,
+        cur_step,
+        Q,
+        H,
+        force_pos,
+        include_ar1,
+        obs_mean,
+        obs_std,
+        forecast_h_file,
+        forecast_c_file,
+):
+    model_forecast = LSTMDA(hidden_units) # model that will make forecasts many days into future 
+    model_forecast.load_weights(weights_dir)
+    forecast_shape = (n_en * len(model_locations), 1, x_pred.shape[2]) 
+    model_forecast.rnn_layer.build(input_shape=forecast_shape) # full timestep forecast 
+    model_forecast.rnn_layer.reset_states(states=[h, c])
+    for tt in range(f_horizon):
+        cur_t = cur_step+tt
+        forecast_drivers = x_pred[:,cur_t,:].reshape((x_pred.shape[0], 1, x_pred.shape[2]))
+        if tt > 0: 
+            if include_ar1: 
+                scaled_forecast_water = (Y_forecasts[0:n_segs,cur_step,tt-1,:].reshape(n_en) - obs_mean) / (obs_std + 1e-10)
+                forecast_drivers[:,0,1] = np.mean(scaled_forecast_water)
+            forecast_h = np.load(forecast_h_file, allow_pickle=True)
+            forecast_c = np.load(forecast_c_file, allow_pickle=True)
+            model_forecast.rnn_layer.reset_states(states=[forecast_h, forecast_c])
+        forecast_preds = model_forecast.predict(forecast_drivers, batch_size = n_en * n_segs)
+
+        Y_forecasts[:,cur_step,tt,:] = forecast_preds[:,0,:].reshape((n_segs,n_en)) #cur_forecast
+        Y_forecasts = add_process_error_forecast(Y = Y_forecasts, 
+                                                 Q = Q,
+                                                 H = H,
+                                                 n_en = n_en,
+                                                 cur_step = cur_step,
+                                                 cur_valid_t = tt,
+                                                 n_segs = n_segs)
+        if force_pos: 
+            Y_forecasts[0:n_segs,cur_step,tt,:] = np.where(Y_forecasts[0:n_segs,cur_step,tt,:]<0,0,Y_forecasts[0:n_segs,cur_step,tt,:])
+            
+    return Y_forecasts 
+    
+    
