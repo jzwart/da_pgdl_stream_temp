@@ -559,8 +559,8 @@ def get_EnKF_matrices(
 def forecast(
         Y_forecasts,
         weights_dir,
-        h,
-        c,
+        forecast_h,
+        forecast_c,
         hidden_units,
         n_en,
         model_locations,
@@ -576,12 +576,15 @@ def forecast(
         obs_std,
         forecast_h_file,
         forecast_c_file,
+        forecast_model_list,
 ):
-    model_forecast = LSTMDA(hidden_units) # model that will make forecasts many days into future 
-    model_forecast.load_weights(weights_dir)
-    forecast_shape = (n_en * len(model_locations), 1, x_pred.shape[2]) 
-    model_forecast.rnn_layer.build(input_shape=forecast_shape) # full timestep forecast 
-    model_forecast.rnn_layer.reset_states(states=[h, c])
+    cur_model = forecast_model_list[cur_step] 
+    
+    #model_forecast = LSTMDA(hidden_units) # model that will make forecasts many days into future 
+    #model_forecast.load_weights(weights_dir)
+    #forecast_shape = (n_en * len(model_locations), 1, x_pred.shape[2]) 
+    #model_forecast.rnn_layer.build(input_shape=forecast_shape) # full timestep forecast 
+    cur_model.rnn_layer.reset_states(states=[forecast_h, forecast_c])
     for tt in range(f_horizon):
         cur_t = cur_step+tt
         forecast_drivers = x_pred[:,cur_t,:].reshape((x_pred.shape[0], 1, x_pred.shape[2]))
@@ -589,10 +592,10 @@ def forecast(
             if include_ar1: 
                 scaled_forecast_water = (Y_forecasts[0:n_segs,cur_step,tt-1,:].reshape(n_en) - obs_mean) / (obs_std + 1e-10)
                 forecast_drivers[:,0,1] = np.mean(scaled_forecast_water)
-            forecast_h = np.load(forecast_h_file, allow_pickle=True)
-            forecast_c = np.load(forecast_c_file, allow_pickle=True)
-            model_forecast.rnn_layer.reset_states(states=[forecast_h, forecast_c])
-        forecast_preds = model_forecast.predict(forecast_drivers, batch_size = n_en * n_segs)
+            #forecast_h = np.load(forecast_h_file, allow_pickle=True)
+            #forecast_c = np.load(forecast_c_file, allow_pickle=True)
+            #model_forecast.rnn_layer.reset_states(states=[forecast_h, forecast_c])
+        forecast_preds = cur_model.predict(forecast_drivers, batch_size = n_en * n_segs)
 
         Y_forecasts[:,cur_step,tt,:] = forecast_preds[:,0,:].reshape((n_segs,n_en)) #cur_forecast
         Y_forecasts = add_process_error_forecast(Y = Y_forecasts, 
@@ -607,4 +610,20 @@ def forecast(
             
     return Y_forecasts 
     
+def make_forecast_models(n_step,
+                         hidden_units,
+                         weights_dir,
+                         model_locations,
+                         x_pred,
+                         n_en):
     
+    forecast_shape = (n_en * len(model_locations), 1, x_pred.shape[2]) 
+    all_models = [] # empty list 
+    for i in range(n_step):
+        cur_model = LSTMDA(hidden_units) # model that will make forecasts many days into future 
+        cur_model.load_weights(weights_dir).expect_partial()
+        cur_model.rnn_layer.build(input_shape=forecast_shape) # full timestep forecast 
+
+        all_models.append(cur_model)
+    
+    return(all_models)

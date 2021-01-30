@@ -5,7 +5,7 @@ library(ggplot2)
 library(reticulate)
 np = import('numpy')
 
-d = np$load('5_pgdl_pretrain/out/simple_lstm_da_100epoch_0.5beta_0.9alpha_Falsehc_TrueAR1_2HiddenUnits.npz')
+d = np$load('5_pgdl_pretrain/out/simple_lstm_da_100epoch_0.5beta_0.9alpha_Truehc_TrueAR1_2HiddenUnits.npz')
 
 obs = d$f[['obs']] #[,,1:10]
 obs_withheld = d$f[['obs_orig']] # if we withhold observations from DA steps
@@ -236,15 +236,17 @@ for(j in cur_model_idxs){
 
 
 # plot forecasts
-Y_forecast[,,1,] = Y[1:n_segs,,]
-issue_times = 100:130
+#Y_forecast[,,1,] = Y[1:n_segs,,]
+issue_times = 1:10
 for(j in cur_model_idxs){
   # obs[,1,1]
   matrix_loc = which(cur_model_idxs == j)
 
   mean_pred_no_da = rowMeans(Y_no_da[matrix_loc,,]) # colMeans(preds_no_da[,,matrix_loc])
+  mean_pred_da = rowMeans(Y[matrix_loc,,]) # colMeans(preds_no_da[,,matrix_loc])
 
   windows(width = 14, height = 10)
+  par(mar = c(6,6,4,3))
   plot(Y_forecast[matrix_loc,issue_times,1,1] ~ dates[issue_times], type = 'l',
        ylab = 'Stream Temp (C)', xlab = '', lty=0,
        #ylim = c(0,25),
@@ -264,7 +266,8 @@ for(j in cur_model_idxs){
   points(obs[matrix_loc,1,issue_times] ~ dates[issue_times], col = 'red', pch = 16, cex = 1.2)
   arrows(dates[issue_times], obs[matrix_loc,1,issue_times]+R[matrix_loc,matrix_loc,issue_times], dates[issue_times], obs[matrix_loc,1,issue_times]-R[matrix_loc,matrix_loc,issue_times],
          angle = 90, length = .05, col = 'red', code = 3)
-  lines(mean_pred_no_da[issue_times] ~ dates[issue_times], lwd =2 ,col = alpha('blue',.5))
+  lines(mean_pred_no_da[issue_times] ~ dates[issue_times], lwd =5 ,col = alpha('blue',.5))
+  lines(mean_pred_da[issue_times] ~ dates[issue_times], lwd =2 , lty = 2, col = alpha('green',.9))
 }
 
 
