@@ -15,7 +15,7 @@ def dl_da_iter(
         out_c_file, 
         x_trn,
         obs_trn,
-        data,
+        model_locations,
         temp_obs_sd,
         n_en,
         process_error,
@@ -26,15 +26,14 @@ def dl_da_iter(
         psi,
         seg_tave_water_mean,
         seg_tave_water_std,
-        force_pos):
+        force_pos,
+        dates):
     
     obs_array = obs_trn
     n_states_obs, n_step, tmp = obs_array.shape
-    model_locations = data['model_locations'] # seg_id_nat of the stream segments 
     n_segs = len(model_locations)
     n_states_obs = n_segs
     state_sd = np.repeat(temp_obs_sd, n_states_obs) 
-    dates = data['dates_trn'][1:data['dates_trn'].shape[0]]
 
     n_states_est = 3 * len(model_locations) # number of states we're estimating (predictions, h, c) for x segments
 

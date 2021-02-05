@@ -5,7 +5,7 @@ library(ggplot2)
 library(reticulate)
 np = import('numpy')
 
-d = np$load('5_pgdl_pretrain/out/simple_lstm_da_100epoch_0.5beta_0.9alpha_Truehc_TrueAR1_2HiddenUnits.npz')
+d = np$load('5_pgdl_pretrain/out/simple_lstm_da_100epoch_0.5beta_0.9alpha_Truehc_TrueAR1_6HiddenUnits.npz')
 
 obs = d$f[['obs']] #[,,1:10]
 obs_withheld = d$f[['obs_orig']] # if we withhold observations from DA steps
@@ -49,9 +49,7 @@ for(j in cur_model_idxs){
        ylim = c(0,25), #ylim =range(c(Y[matrix_loc,,], obs[matrix_loc,1,]), na.rm = T), #, Y_no_assim[matrix_loc,,])
        cex.axis = 2, cex.lab =2, main = sprintf('model idx %s', j))
   add_text(sprintf('RMSE DA: %s \nRMSE no DA: %s', temp_rmse, temp_rmse_no_da), location = 'bottomleft')
-  points(obs[matrix_loc,1,] ~ dates, col = 'red', pch = 16, cex = 1.2)
-  arrows(dates, obs[matrix_loc,1,]+R[matrix_loc,matrix_loc,], dates, obs[matrix_loc,1,]-R[matrix_loc,matrix_loc,],
-         angle = 90, length = .05, col = 'red', code = 3)
+
   for(i in 1:n_en){
     lines(Y_no_da[matrix_loc,,i] ~ dates, col = alpha('blue', .5))
     lines(Y[matrix_loc,,i] ~ dates, col = alpha('grey', .5))
@@ -59,6 +57,9 @@ for(j in cur_model_idxs){
   lines(mean_pred ~ dates, lwd = 2, col = alpha('black', .5))
   lines(mean_pred_no_da ~ dates, lwd = 2, col = alpha('blue', .5))
   # abline(v = dates[30])
+  points(obs[matrix_loc,1,] ~ dates, col = 'red', pch = 16, cex = 1.2)
+  arrows(dates, obs[matrix_loc,1,]+R[matrix_loc,matrix_loc,], dates, obs[matrix_loc,1,]-R[matrix_loc,matrix_loc,],
+         angle = 90, length = .05, col = 'red', code = 3)
 
   plot(Q[matrix_loc,matrix_loc,] ~ dates, type = 'l',
        ylab = 'Process Error', xlab = '', lty=3,lwd = 3,
@@ -72,6 +73,99 @@ for(j in cur_model_idxs){
   # add_text(sprintf('RMSE Preds-True: %s \nRMSE Obs-True: %s \nRMSE Preds-Obs: %s', true_rmse, obs_rmse, temp_rmse), location = 'topleft')
   # abline(0,1)
 }
+
+
+persistence_forecast = Y_forecast
+for(i in 1:n_step){
+  for(j in cur_model_idxs){
+    matrix_loc = which(cur_model_idxs == j)
+    if(!is.na(obs[matrix_loc,1,i])){ # if there are observations, set persistence to obs
+      persistence_forecast[matrix_loc,i,,] = obs[matrix_loc,1,i]
+    }else{
+      persistence_forecast[matrix_loc,i,,] = NA
+    }
+  }
+}
+
+# plot forecasts
+#Y_forecast[,,1,] = Y[1:n_segs,,]
+issue_times = 110:120
+for(j in cur_model_idxs){
+  # obs[,1,1]
+  matrix_loc = which(cur_model_idxs == j)
+
+  mean_pred_no_da = rowMeans(Y_no_da[matrix_loc,,]) # colMeans(preds_no_da[,,matrix_loc])
+  mean_pred_da = rowMeans(Y[matrix_loc,,]) # colMeans(preds_no_da[,,matrix_loc])
+
+  windows(width = 14, height = 10)
+  par(mar = c(6,6,4,3))
+  plot(Y_forecast[matrix_loc,issue_times,1,1] ~ dates[issue_times], type = 'l',
+       ylab = 'Stream Temp (C)', xlab = '', lty=0,
+       #ylim = c(0,25),
+       ylim =range(c(Y_forecast[matrix_loc,issue_times,,], obs[matrix_loc,1,issue_times]), na.rm = T), #, Y_no_assim[matrix_loc,,])
+       cex.axis = 2, cex.lab =2, main = sprintf('model idx %s', j))
+  points(obs[matrix_loc,1,issue_times] ~ dates[issue_times], col = 'red', pch = 16, cex = 1.2)
+  arrows(dates[issue_times], obs[matrix_loc,1,issue_times]+R[matrix_loc,matrix_loc,issue_times], dates[issue_times], obs[matrix_loc,1,issue_times]-R[matrix_loc,matrix_loc,issue_times],
+         angle = 90, length = .05, col = 'red', code = 3)
+  for(t in issue_times){
+    mean_pred = rowMeans(Y_forecast[matrix_loc,t,,])
+    cur_dates = dates[t:(t+f_horizon-1)]
+    for(i in 1:n_en){
+      lines(Y_forecast[matrix_loc,t,,i] ~ cur_dates, col = alpha('grey', .5))
+    }
+    lines(mean_pred ~ cur_dates, lwd = 2, col = alpha('black', .5))
+    lines(persistence_forecast[matrix_loc,t,,1] ~ cur_dates, lwd = 2, col = alpha('red',.5)) # persistence forecast
+  }
+  points(obs[matrix_loc,1,issue_times] ~ dates[issue_times], col = 'red', pch = 16, cex = 1.2)
+  arrows(dates[issue_times], obs[matrix_loc,1,issue_times]+R[matrix_loc,matrix_loc,issue_times], dates[issue_times], obs[matrix_loc,1,issue_times]-R[matrix_loc,matrix_loc,issue_times],
+         angle = 90, length = .05, col = 'red', code = 3)
+  lines(mean_pred_no_da[issue_times] ~ dates[issue_times], lwd =5 ,col = alpha('blue',.5))
+  lines(mean_pred_da[issue_times] ~ dates[issue_times], lwd =2 , lty = 2, col = alpha('green',.9))
+}
+
+
+# what is the RMSE based on lead time?
+issue_times = 1:n_step
+out = crossing(tibble(issue_date = dates[issue_times]), tibble(lead_time = seq(0,f_horizon-1)))
+out = mutate(out,
+             valid_time = issue_date + lubridate::days(lead_time),
+             mean_da_forecast = NA,
+             persistence = NA)
+for(t in issue_times){
+  cur_date = dates[t]
+  mean_pred = rowMeans(Y_forecast[matrix_loc,t,,])
+  persistence = rowMeans(persistence_forecast[matrix_loc,t,,])
+  out$mean_da_forecast = ifelse(out$issue_date==cur_date, mean_pred, out$mean_da_forecast)
+  out$persistence = ifelse(out$issue_date==cur_date, persistence, out$persistence)
+}
+obs_df = tibble(date = dates[issue_times], obs_temp = obs[1,1,issue_times])
+mean_pred_no_da = rowMeans(Y_no_da[matrix_loc,,])
+no_da_preds = tibble(date = dates[issue_times], mean_pred_no_da = mean_pred_no_da[issue_times])
+out = left_join(out,obs_df, by = c("valid_time"=  "date"))
+out = left_join(out, no_da_preds, by = c("valid_time" = "date"))
+
+RMSE = function(m, o, na.rm = T){
+  sqrt(mean((m - o)^2, na.rm = na.rm))
+}
+
+accuracy_sum = out %>%
+  group_by(lead_time) %>%
+  summarise(DA = RMSE(mean_da_forecast, obs_temp),
+            #No_DA = RMSE(mean_pred_no_da, obs_temp),
+            No_DA_persistence = RMSE(persistence, obs_temp)) %>%
+  pivot_longer(cols = contains('DA'), names_to = 'forecast_type',values_to = 'rmse')
+windows()
+ggplot(accuracy_sum, aes(x = lead_time, y = rmse, group = forecast_type, color = forecast_type))+
+  geom_line(size = 2) +
+  geom_point(size = 3) +
+  theme_minimal()+
+  theme(axis.text = element_text(size =14),
+        axis.title = element_text(size = 16))+
+  xlab('Lead Time (days)') +
+  ylab('RMSE (C)') +
+  xlim(c(1,f_horizon-1))+
+  scale_color_discrete(name = "Model Type",
+                      labels = c("DA", "Persistence"))
 
 
 
@@ -235,52 +329,19 @@ for(j in cur_model_idxs){
 }
 
 
-# plot forecasts
-#Y_forecast[,,1,] = Y[1:n_segs,,]
-issue_times = 1:10
-for(j in cur_model_idxs){
-  # obs[,1,1]
-  matrix_loc = which(cur_model_idxs == j)
-
-  mean_pred_no_da = rowMeans(Y_no_da[matrix_loc,,]) # colMeans(preds_no_da[,,matrix_loc])
-  mean_pred_da = rowMeans(Y[matrix_loc,,]) # colMeans(preds_no_da[,,matrix_loc])
-
-  windows(width = 14, height = 10)
-  par(mar = c(6,6,4,3))
-  plot(Y_forecast[matrix_loc,issue_times,1,1] ~ dates[issue_times], type = 'l',
-       ylab = 'Stream Temp (C)', xlab = '', lty=0,
-       #ylim = c(0,25),
-       ylim =range(c(Y_forecast[matrix_loc,issue_times,,], obs[matrix_loc,1,issue_times]), na.rm = T), #, Y_no_assim[matrix_loc,,])
-       cex.axis = 2, cex.lab =2, main = sprintf('model idx %s', j))
-  points(obs[matrix_loc,1,issue_times] ~ dates[issue_times], col = 'red', pch = 16, cex = 1.2)
-  arrows(dates[issue_times], obs[matrix_loc,1,issue_times]+R[matrix_loc,matrix_loc,issue_times], dates[issue_times], obs[matrix_loc,1,issue_times]-R[matrix_loc,matrix_loc,issue_times],
-         angle = 90, length = .05, col = 'red', code = 3)
-  for(t in issue_times){
-    mean_pred = rowMeans(Y_forecast[matrix_loc,t,,])
-    cur_dates = dates[t:(t+f_horizon-1)]
-    for(i in 1:n_en){
-      lines(Y_forecast[matrix_loc,t,,i] ~ cur_dates, col = alpha('grey', .5))
-    }
-    lines(mean_pred ~ cur_dates, lwd = 2, col = alpha('black', .5))
-  }
-  points(obs[matrix_loc,1,issue_times] ~ dates[issue_times], col = 'red', pch = 16, cex = 1.2)
-  arrows(dates[issue_times], obs[matrix_loc,1,issue_times]+R[matrix_loc,matrix_loc,issue_times], dates[issue_times], obs[matrix_loc,1,issue_times]-R[matrix_loc,matrix_loc,issue_times],
-         angle = 90, length = .05, col = 'red', code = 3)
-  lines(mean_pred_no_da[issue_times] ~ dates[issue_times], lwd =5 ,col = alpha('blue',.5))
-  lines(mean_pred_da[issue_times] ~ dates[issue_times], lwd =2 , lty = 2, col = alpha('green',.9))
-}
-
-
 # what is the RMSE based on lead time?
 issue_times = 1:n_step
 out = crossing(tibble(issue_date = dates[issue_times]), tibble(lead_time = seq(0,f_horizon-1)))
 out = mutate(out,
              valid_time = issue_date + lubridate::days(lead_time),
-             mean_da_forecast = NA)
+             mean_da_forecast = NA,
+             persistence = NA)
 for(t in issue_times){
   cur_date = dates[t]
   mean_pred = rowMeans(Y_forecast[matrix_loc,t,,])
+  persistence = rowMeans(persistence_forecast[matrix_loc,t,,])
   out$mean_da_forecast = ifelse(out$issue_date==cur_date, mean_pred, out$mean_da_forecast)
+  out$persistence = ifelse(out$issue_date==cur_date, persistence, out$persistence)
 }
 obs_df = tibble(date = dates[issue_times], obs_temp = obs[1,1,issue_times])
 mean_pred_no_da = rowMeans(Y_no_da[matrix_loc,,])
@@ -295,9 +356,10 @@ RMSE = function(m, o, na.rm = T){
 accuracy_sum = out %>%
   group_by(lead_time) %>%
   summarise(DA = RMSE(mean_da_forecast, obs_temp),
-            No_DA = RMSE(mean_pred_no_da, obs_temp)) %>%
+            #No_DA = RMSE(mean_pred_no_da, obs_temp),
+            No_DA_persistence = RMSE(persistence, obs_temp)) %>%
   pivot_longer(cols = contains('DA'), names_to = 'forecast_type',values_to = 'rmse')
-
+windows()
 ggplot(accuracy_sum, aes(x = lead_time, y = rmse, group = forecast_type, color = forecast_type))+
   geom_line(size = 2) +
   geom_point(size = 3) +

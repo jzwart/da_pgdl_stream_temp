@@ -42,7 +42,7 @@ def get_nc_data(
     start_date_pred,
     end_date_pred,
     scale_data=False,
-    include_ar1=False,
+    ar1_temp=False,
 ):
     data = xr.open_dataset(var_file)  # open netcdf file with xarray 
     # make sure the indices are in the same order
@@ -76,12 +76,12 @@ def get_nc_data(
         data_pred, _, _ = scale(data_pred, mean, std)
     
     data.close()
-    if scale_data and include_ar1:
+    if scale_data and ar1_temp:
         return data_trn, data_pred, seg_tave_water_mean, seg_tave_water_std
     else: 
         return data_trn, data_pred 
 
-def prep_one_var_lstm_da(
+def prep_lstm_da(
     var_file,
     vars,
     seg_id,
@@ -90,7 +90,7 @@ def prep_one_var_lstm_da(
     start_date_pred,
     end_date_pred,
     scale_data=False,
-    include_ar1=False,
+    ar1_temp=False,
 ):
     data = xr.open_zarr(var_file)
     # make sure the indices are in the same order
@@ -110,10 +110,24 @@ def prep_one_var_lstm_da(
     if scale_data:
         data_trn, mean, std = scale(data_trn)
         data_pred, _, _ = scale(data_pred, mean, std)
-    if include_ar1:
-        data_dont_use, mean, std = scale(data_trn)
-        std = np.array(std['temp_c'])
-        mean = np.array(mean['temp_c'])
+        if ar1_temp:
+            if 'seg_tave_water' in vars:
+                mean = np.array(mean['seg_tave_water'])
+                std = np.array(std['seg_tave_water'])
+            elif 'temp_c' in vars:
+                std = np.array(std['temp_c'])
+                mean = np.array(mean['temp_c'])
+    else:
+        if ar1_temp:
+            if 'seg_tave_water' in vars:
+                data_dont_use, mean, std = scale(data_trn)
+                mean = np.array(mean['seg_tave_water'])
+                std = np.array(std['seg_tave_water'])
+            elif 'temp_c' in vars:
+                data_dont_use, mean, std = scale(data_trn)
+                std = np.array(std['temp_c'])
+                mean = np.array(mean['temp_c'])
+    if ar1_temp:
         return data_trn, data_pred, mean, std
     else: 
         return data_trn, data_pred
@@ -136,10 +150,10 @@ def prep_data_lstm_da(
     obs_vars = ["temp_c"], 
     out_file=None,
     n_en = 1, # number of ensembles for DA - creating n_en batches 
-    include_ar1 = False, # include ar1 term or not 
+    ar1_temp = False, # include ar1 term or not 
 ):
-    if include_ar1: 
-        x_trn, x_pred, seg_tave_water_mean, seg_tave_water_std = get_nc_data(
+    if ar1_temp: 
+        x_trn, x_pred, seg_tave_water_mean, seg_tave_water_std = prep_lstm_da(
             driver_file,
             x_vars,
             seg_id,
@@ -148,10 +162,10 @@ def prep_data_lstm_da(
             start_date_pred,
             end_date_pred,
             scale_data=True,
-            include_ar1 = include_ar1,
+            ar1_temp = ar1_temp,
         )
     else: 
-        x_trn, x_pred = get_nc_data(
+        x_trn, x_pred = prep_lstm_da(
             driver_file,
             x_vars,
             seg_id,
@@ -160,9 +174,9 @@ def prep_data_lstm_da(
             start_date_pred,
             end_date_pred,
             scale_data=True,
-            include_ar1 = include_ar1,
+            ar1_temp = ar1_temp,
         )
-    y_trn, y_pred = get_nc_data(
+    y_trn, y_pred = prep_lstm_da(
         driver_file,
         y_vars,
         seg_id,
@@ -172,8 +186,8 @@ def prep_data_lstm_da(
         end_date_pred,
         scale_data=False,
     )
-    if include_ar1: 
-        obs_trn, obs_pred, obs_mean, obs_std = prep_one_var_lstm_da(
+    if ar1_temp: 
+        obs_trn, obs_pred, obs_mean, obs_std = prep_lstm_da(
             obs_temp_file,
             obs_vars,
             seg_id,
@@ -182,10 +196,10 @@ def prep_data_lstm_da(
             start_date_pred,
             end_date_pred,
             scale_data=False,
-            include_ar1 = include_ar1,
+            ar1_temp = ar1_temp,
         )
     else: 
-        obs_trn, obs_pred = prep_one_var_lstm_da(
+        obs_trn, obs_pred = prep_lstm_da(
             obs_temp_file,
             obs_vars,
             seg_id,
@@ -194,7 +208,7 @@ def prep_data_lstm_da(
             start_date_pred,
             end_date_pred,
             scale_data=False,
-            include_ar1 = include_ar1,
+            ar1_temp = ar1_temp,
         )
     
     dates_trn = obs_trn.date.values
@@ -212,13 +226,13 @@ def prep_data_lstm_da(
     x_trn = np.moveaxis(x_trn, 0, -1)
     x_trn = np.moveaxis(x_trn, 1, 0)  # should now be in shape of [nseg, seq_len, n_en, nfeats]
     # we need to make the first axis repeated by n_en 
-    x_trn_out = np.empty((len(seg_id)*n_en, x_trn.shape[1], x_trn.shape[3])) # shape of [nseg*n_en, seq_len, nfeats]
+    # x_trn_out = np.empty((len(seg_id)*n_en, x_trn.shape[1], x_trn.shape[2])) # shape of [nseg*n_en, seq_len, nfeats]
     # the following should ensure that the first axis is sorted by seg_id_nat 
-    for i in range(n_en):
-        for j in range(len(seg_id)):
-            cur_idx = i+j
-            x_trn_out[cur_idx,:,:] = x_trn[j,:,i,:]
-    #x_trn = np.repeat(x_trn, n_en, axis = 0)  
+    # for i in range(n_en):
+    #     for j in range(len(seg_id)):
+    #         cur_idx = i+j
+    #         x_trn_out[cur_idx,:,:] = x_trn[j,:,i,:]
+    x_trn = np.repeat(x_trn, n_en, axis = 0)  
     # adding noise to predictors 
     #for i in range(x_trn.shape[0]):
         # should make this adjusted not by the scaled drivers 
@@ -228,12 +242,13 @@ def prep_data_lstm_da(
     y_trn = np.moveaxis(y_trn, 0, -1)
     y_trn = np.moveaxis(y_trn, 1, 0)  # should now be in shape of [nseg, seq_len, n_en, nfeats]
     # we need to make the first axis repeated by n_en 
-    y_trn_out = np.empty((len(seg_id)*n_en, y_trn.shape[1], y_trn.shape[3])) # shape of [nseg*n_en, seq_len, nfeats]
+    # y_trn_out = np.empty((len(seg_id)*n_en, y_trn.shape[1], y_trn.shape[3])) # shape of [nseg*n_en, seq_len, nfeats]
     # the following should ensure that the first axis is sorted by seg_id_nat 
-    for i in range(n_en):
-        for j in range(len(seg_id)):
-            cur_idx = i+j
-            y_trn_out[cur_idx,:,:] = y_trn[j,:,i,:]
+    # for i in range(n_en):
+    #     for j in range(len(seg_id)):
+    #         cur_idx = i+j
+    #         y_trn_out[cur_idx,:,:] = y_trn[j,:,i,:]
+    y_trn = np.repeat(y_trn, n_en, axis = 0)  
     
     obs_trn = fmt_dataset(obs_trn)
     obs_trn = np.moveaxis(obs_trn, 0, -1)
@@ -244,36 +259,40 @@ def prep_data_lstm_da(
     x_pred = np.moveaxis(x_pred, 0, -1)
     x_pred = np.moveaxis(x_pred, 1, 0)  # should now be in shape of [nseg, seq_len, n_en, nfeats]
     # we need to make the first axis repeated by n_en 
-    x_pred_out = np.empty((len(seg_id)*n_en, x_pred.shape[1], x_pred.shape[3])) # shape of [nseg*n_en, seq_len, nfeats]
+    # x_pred_out = np.empty((len(seg_id)*n_en, x_pred.shape[1], x_pred.shape[3])) # shape of [nseg*n_en, seq_len, nfeats]
     # the following should ensure that the first axis is sorted by seg_id_nat 
-    for i in range(n_en):
-        for j in range(len(seg_id)):
-            cur_idx = i+j
-            x_pred_out[cur_idx,:,:] = x_pred[j,:,i,:]
+    # for i in range(n_en):
+    #     for j in range(len(seg_id)):
+    #         cur_idx = i+j
+    #         x_pred_out[cur_idx,:,:] = x_pred[j,:,i,:]
+    x_pred = np.repeat(x_pred, n_en, axis = 0)  
             
     y_pred = fmt_dataset(y_pred) # current shape is [nfeats, seg_len, nseg, n_en]
     y_pred = np.moveaxis(y_pred, 0, -1)
     y_pred = np.moveaxis(y_pred, 1, 0)  # should now be in shape of [nseg, seq_len, n_en, nfeats]
     # we need to make the first axis repeated by n_en 
-    y_pred_out = np.empty((len(seg_id)*n_en, y_pred.shape[1], y_pred.shape[3])) # shape of [nseg*n_en, seq_len, nfeats]
+    # y_pred_out = np.empty((len(seg_id)*n_en, y_pred.shape[1], y_pred.shape[3])) # shape of [nseg*n_en, seq_len, nfeats]
     # the following should ensure that the first axis is sorted by seg_id_nat 
-    for i in range(n_en):
-        for j in range(len(seg_id)):
-            cur_idx = i+j
-            y_pred_out[cur_idx,:,:] = y_pred[j,:,i,:]
+    # for i in range(n_en):
+    #     for j in range(len(seg_id)):
+    #         cur_idx = i+j
+    #         y_pred_out[cur_idx,:,:] = y_pred[j,:,i,:]
+    y_pred = np.repeat(y_pred, n_en, axis = 0)  
             
     obs_pred = fmt_dataset(obs_pred)
     obs_pred = np.moveaxis(obs_pred, 0, -1)
     obs_pred = np.moveaxis(obs_pred, 1, 0)  # should now be in shape of [nseg, seq_len, nfeats]
-    if include_ar1:
+    # obs_pred = np.repeat(obs_pred, n_en, axis = 0)  
+    
+    if ar1_temp:
         data = {
-            "x_trn": x_trn_out,
-            "x_pred": x_pred_out,
+            "x_trn": x_trn,
+            "x_pred": x_pred,
             "dates_trn": dates_trn,
             "dates_pred": dates_pred,
             "model_locations": seg_id, 
-            "y_trn": y_trn_out,
-            "y_pred": y_pred_out,
+            "y_trn": y_trn,
+            "y_pred": y_pred,
             "obs_trn": obs_trn,
             "obs_pred": obs_pred,
             "seg_tave_water_mean": seg_tave_water_mean,
@@ -285,13 +304,13 @@ def prep_data_lstm_da(
         }
     else: 
         data = {
-            "x_trn": x_trn_out,
-            "x_pred": x_pred_out,
+            "x_trn": x_trn,
+            "x_pred": x_pred,
             "dates_trn": dates_trn,
             "dates_pred": dates_pred,
             "model_locations": seg_id, 
-            "y_trn": y_trn_out,
-            "y_pred": y_pred_out,
+            "y_trn": y_trn,
+            "y_pred": y_pred,
             "obs_trn": obs_trn,
             "obs_pred": obs_pred,
             "doy_trn": doy_trn,
@@ -301,3 +320,77 @@ def prep_data_lstm_da(
         np.savez_compressed(out_file, **data)
     return data
 
+def get_data_lstm_da(data_file,
+                     ar1_temp,
+                     ar1_temp_pos,
+                     doy_feat,
+                     n_en,
+):
+    data = np.load(data_file) 
+
+    if ar1_temp:
+        seg_tave_water_mean = data['seg_tave_water_mean']
+        seg_tave_water_std = data['seg_tave_water_std'] 
+        obs_mean = data['obs_mean']
+        obs_std = data['obs_std']
+    
+        # add in yesterday's water temperature as a driver (AR1)
+        temp_minus1 = data['x_trn'][:,0:(data['x_trn'].shape[1]-1),ar1_temp_pos]
+        x_trn = data['x_trn'][:,1:data['x_trn'].shape[1],:]
+        x_trn[:,:,ar1_temp_pos] = temp_minus1
+        y_trn = data['y_trn'][:,1:data['y_trn'].shape[1],:] 
+        obs_trn = data['obs_trn'][:,1:data['obs_trn'].shape[1],:]
+        obs_trn_ar1 = data['obs_trn'][:,0:(data['obs_trn'].shape[1]-1),:]
+        doy_trn = data['doy_trn'][0:(data['doy_trn'].shape[0]-1)]
+        doy_pred = data['doy_pred'][0:(data['doy_pred'].shape[0]-1)]
+    else: 
+        x_trn = data['x_trn'] 
+        y_trn = data['y_trn'] 
+        obs_trn = data['obs_trn'] 
+        doy_trn = data['doy_trn']
+        doy_pred = data['doy_pred']
+        
+    if doy_feat:
+        doy_trn = np.tile(doy_trn, n_en).reshape((n_en, doy_trn.shape[0],1))
+        doy_pred = np.tile(doy_pred, n_en).reshape((n_en, doy_pred.shape[0],1))
+        x_trn = np.append(x_trn, doy_trn, axis = 2)
+
+    # get model prediction parameters for setting up EnKF matrices 
+    if ar1_temp: 
+        obs_array = data['obs_pred'][:,1:data['obs_pred'].shape[1],:] 
+        temp_minus1 = data['x_pred'][:,0:(data['x_pred'].shape[1]-1),ar1_temp_pos] # this will be updated with DA 
+        x_pred = data['x_pred'][:,1:data['x_pred'].shape[1],:]
+        x_pred_da = data['x_pred'][:,1:data['x_pred'].shape[1],:]
+        x_pred_f = data['x_pred'][:,1:data['x_pred'].shape[1],:]
+        x_pred[:,:,ar1_temp_pos] = temp_minus1
+        x_pred_da[:,:,ar1_temp_pos] = temp_minus1
+        x_pred_f[:,:,ar1_temp_pos] = temp_minus1
+        # add in observations if there are obs 
+        scaled_obs = (data['obs_pred'][:,0:(data['obs_pred'].shape[1]-1),:] - obs_mean) / (obs_std + 1e-10)
+        scaled_obs = np.repeat(scaled_obs, n_en, axis = 0)  
+        x_pred[:,:,ar1_temp_pos] = np.where(np.isnan(scaled_obs[:,:,0]), x_pred[:,:,ar1_temp_pos], scaled_obs[:,:,0])
+        x_pred_da[:,:,ar1_temp_pos] = np.where(np.isnan(scaled_obs[:,:,0]), x_pred_da[:,:,ar1_temp_pos], scaled_obs[:,:,0])
+        x_pred_f[:,:,ar1_temp_pos] = np.where(np.isnan(scaled_obs[:,:,0]), x_pred_f[:,:,ar1_temp_pos], scaled_obs[:,:,0])
+        
+    else: 
+        obs_array = data['obs_pred'] 
+        x_pred = data['x_pred'] 
+        x_pred_da = data['x_pred'] 
+        x_pred_f = data['x_pred'] 
+        
+    if doy_feat:
+        x_pred = np.append(x_pred, doy_pred, axis = 2)
+    
+    model_locations = data['model_locations'] # seg_id_nat of the stream segments 
+    
+    if ar1_temp: 
+        dates = data['dates_pred'][1:data['dates_pred'].shape[0]]
+        dates_trn = data['dates_trn'][1:data['dates_trn'].shape[0]]
+    else: 
+        dates = data['dates_pred'] 
+        dates_trn = data['dates_trn'] 
+    
+    return x_trn, y_trn, obs_trn, obs_trn_ar1, x_pred, x_pred_da, x_pred_f, obs_array, model_locations, dates, dates_trn, seg_tave_water_mean, seg_tave_water_std, obs_mean, obs_std
+    
+    
+    
