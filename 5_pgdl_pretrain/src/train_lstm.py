@@ -3,6 +3,7 @@ import numpy as np
 import sys
 sys.path.insert(1, '5_pgdl_pretrain/src')
 from LSTMDA import LSTMDA, rmse_masked
+sys.path.insert(1, '6_pgdl_forecast/src')
 from dl_da_iteration_ar1 import dl_da_iter
 
 # def train_save_model(
@@ -60,7 +61,10 @@ def train_model(x_trn,
                 ar1_temp_pos,
                 n_segs,
                 model_locations,
-                dates_trn
+                dates_trn,
+                update_h_c,
+                h_sd,
+                c_sd
 ):
 
     if pre_train:
@@ -94,8 +98,17 @@ def train_model(x_trn,
                    psi = psi,
                    seg_tave_water_mean = seg_tave_water_mean,
                    seg_tave_water_std = seg_tave_water_std,
+                   obs_mean = obs_mean,
+                   obs_std = obs_std, 
                    force_pos = force_pos,
-                   dates = dates_trn)
+                   dates = dates_trn,
+                   update_h_c = update_h_c,
+                   ar1_temp = ar1_temp,
+                   ar1_temp_pos = ar1_temp_pos,
+                   h_sd = h_sd,
+                   c_sd = c_sd,
+                   hidden_units = hidden_units,
+                   n_segs = n_segs)
         
         #fine_tune_model = LSTMDA(1) 
         #fine_tune_model.load_weights(weights_dir) 

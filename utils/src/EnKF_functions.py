@@ -595,7 +595,7 @@ def get_da_objects(obs_array,
                                                n_en = n_en,
                                                state_sd = state_sd)
     
-    # get long term error ; make this smarter based on hidden unit size & n_segs 
+    # get long term error  
     Q_ave = get_model_error_matrix(n_states_est, 1, state_sd)
 
     if update_h_c: 

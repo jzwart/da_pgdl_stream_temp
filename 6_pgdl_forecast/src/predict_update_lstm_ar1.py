@@ -10,7 +10,7 @@ from train_lstm import train_model
 sys.path.insert(1, 'utils/src')
 from EnKF_functions import * 
 sys.path.insert(1, '6_pgdl_forecast/src')
-#from dl_da_iteration_ar1 import *
+from dl_da_iteration_ar1 import dl_da_iter
 
 
 train_dir = '5_pgdl_pretrain/out'
@@ -33,7 +33,7 @@ alpha = 0.9  # weight for how quickly the process error is allowed to
                # based on current innovations)
 psi = 0.6 # weighting for how much uncertainty goes to long-term average vs. 
             # dynamic uncertainty (higher psi places higher weight on long-term average uncertainty)
-temp_obs_sd = .8 # standard deviation of temperature observations 
+temp_obs_sd = .5 # standard deviation of temperature observations 
 h_sd = 0.02
 c_sd = 0.06
 doy_feat = False # T/F to add day of year 
@@ -50,7 +50,7 @@ n_en = 50
 learn_rate_pre = 0.1
 learn_rate_fine = 0.1
 n_epochs_pre = 20# number of epochs for pretraining 
-n_epochs_fine = 100 # number of epochs for finetuning 
+n_epochs_fine = 150 # number of epochs for finetuning 
 hidden_units = 6 # number of hidden units 
 cycles = 10 # number of cycles for DA-DL routine 
 weights_dir = '5_pgdl_pretrain/out/lstm_da_trained_wgts/'
@@ -65,15 +65,15 @@ forecast_c_file = '5_pgdl_pretrain/out/c_forecast.npy'
 data_file = "5_pgdl_pretrain/in/lstm_da_data.npz"
 obs_temp_file = "5_pgdl_pretrain/in/obs_temp_full"
 driver_file = "5_pgdl_pretrain/in/uncal_sntemp_input_output"
-start_date_trn = "2000-05-01"
-end_date_trn = "2013-06-01"
-start_date_pred = "2013-06-02"
-end_date_pred = "2014-06-02"
+start_date_trn = "1985-05-01"
+end_date_trn = "2014-06-01"
+start_date_pred = "2014-06-02"
+end_date_pred = "2015-06-02"
 
-seg_ids = [1573, 1577] # needs to be a list of seg_ids (even if one segment)
+seg_ids = [1573, 1574, 1575, 1577] # needs to be a list of seg_ids (even if one segment)
 n_segs = len(seg_ids)
 
-x_vars = ["seg_tave_air", "seginc_swrad", "seg_rain", "seg_humid"]
+x_vars = ["seg_tave_air", "seginc_swrad", "seg_rain", "seg_humid", "seg_slope","seg_length","seg_elev"]
 y_vars=["seg_tave_water"]
 obs_vars = ["temp_c"]
 
@@ -145,7 +145,10 @@ train_model(x_trn,
             ar1_temp_pos,
             n_segs,
             model_locations,
-            dates_trn)
+            dates_trn,
+            update_h_c,
+            h_sd,
+            c_sd)
 
 
 '''

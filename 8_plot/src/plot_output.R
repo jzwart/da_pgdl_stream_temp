@@ -5,7 +5,7 @@ library(ggplot2)
 library(reticulate)
 np = import('numpy')
 
-d = np$load('5_pgdl_pretrain/out/simple_lstm_da_100epoch_0.5beta_0.9alpha_Truehc_TrueAR1_6HiddenUnits.npz')
+d = np$load('5_pgdl_pretrain/out/simple_lstm_da_150epoch_0.5beta_0.9alpha_Truehc_TrueAR1_6HiddenUnits.npz')
 
 obs = d$f[['obs']] #[,,1:10]
 obs_withheld = d$f[['obs_orig']] # if we withhold observations from DA steps
@@ -133,6 +133,7 @@ out = mutate(out,
              persistence = NA)
 for(t in issue_times){
   cur_date = dates[t]
+  matrix_loc = which(cur_model_idxs == 1573)
   mean_pred = rowMeans(Y_forecast[matrix_loc,t,,])
   persistence = rowMeans(persistence_forecast[matrix_loc,t,,])
   out$mean_da_forecast = ifelse(out$issue_date==cur_date, mean_pred, out$mean_da_forecast)

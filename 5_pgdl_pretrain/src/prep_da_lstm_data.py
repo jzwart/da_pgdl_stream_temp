@@ -344,9 +344,15 @@ def get_data_lstm_da(data_file,
         doy_trn = data['doy_trn'][0:(data['doy_trn'].shape[0]-1)]
         doy_pred = data['doy_pred'][0:(data['doy_pred'].shape[0]-1)]
     else: 
+        seg_tave_water_mean = float('NaN') 
+        seg_tave_water_std = float('NaN')
+        obs_mean = float('NaN')
+        obs_std = float('NaN')
+        
         x_trn = data['x_trn'] 
         y_trn = data['y_trn'] 
         obs_trn = data['obs_trn'] 
+        obs_trn_ar1 = data['obs_trn'][:,0:(data['obs_trn'].shape[1]-1),:]
         doy_trn = data['doy_trn']
         doy_pred = data['doy_pred']
         
