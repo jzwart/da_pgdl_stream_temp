@@ -9,6 +9,7 @@ import numpy as np
 import sys
 sys.path.insert(1, '5_pgdl_pretrain/src')
 from LSTMDA import *
+from RGCNDA import RGCN
 
 def combine_lstm_states(
         preds,
@@ -557,7 +558,8 @@ def get_EnKF_matrices(
     return obs_mat, Y, Q, P, R, H 
 
 
-def get_da_objects(obs_array,
+def get_da_objects(model_type,
+                   obs_array,
                    x_pred_f,
                    temp_obs_sd,
                    h_sd,
@@ -565,6 +567,7 @@ def get_da_objects(obs_array,
                    update_h_c,
                    hidden_units,
                    model_locations,
+                   dist_mat,
                    n_en,
                    n_segs,
                    store_raw_states,
@@ -617,10 +620,12 @@ def get_da_objects(obs_array,
                                           n_en, 
                                           f_horizon)
         
-        forecast_model_list, forecast_pred_array = make_forecast_models(n_step,
+        forecast_model_list, forecast_pred_array = make_forecast_models(model_type,
+                                                                        n_step,
                                                    hidden_units,
                                                    weights_dir,
                                                    model_locations,
+                                                   dist_mat,
                                                    x_pred_f,
                                                    n_en)
     return n_states_obs, n_step, state_sd, n_states_est, obs_mat, Y, Q, P, R, H, Q_ave, Y_no_da, Y_forecasts, forecast_model_list, forecast_pred_array
@@ -628,7 +633,8 @@ def get_da_objects(obs_array,
 
                     
 
-def predict_and_forecast(out_h_file,
+def predict_and_forecast(model_type,
+                         out_h_file,
                          out_c_file,
                          da_h_file,
                          da_c_file,
@@ -646,6 +652,7 @@ def predict_and_forecast(out_h_file,
                          n_step,
                          dates,
                          model_locations,
+                         dist_mat,
                          update_h_c,
                          n_states_est,
                          n_states_obs,
@@ -674,22 +681,37 @@ def predict_and_forecast(out_h_file,
                          forecast_pred_array
                                                   
 ):
-    # load LSTM states from trained model 
-    h = np.load(out_h_file, allow_pickle=True)
-    c = np.load(out_c_file, allow_pickle=True)
-    
-         
-    model_da = LSTMDA(hidden_units) # model that will make predictions only one day into future 
+    if model_type == 'lstm':
+        # load LSTM states from trained model 
+        h = np.load(out_h_file, allow_pickle=True)
+        c = np.load(out_c_file, allow_pickle=True)
+        
+        model_da = LSTMDA(hidden_units) # model that will make predictions only one day into future 
+    elif model_type == 'rgcn':
+        # load LSTM states from trained model 
+        h = np.load(out_h_file, allow_pickle=True)
+        c = np.load(out_c_file, allow_pickle=True)
+        h = h[:,-1,:]
+        c = c[:,-1,:] 
+        
+        model_da = RGCN(hidden_units, dist_mat) # model that will make predictions only one day into future 
     model_da.load_weights(weights_dir).expect_partial()
     da_drivers = x_pred_da[:,0,:].reshape((x_pred_da.shape[0],1,x_pred_da.shape[2])) # only single timestep for DA model
     da_shape = (n_en * len(model_locations), da_drivers.shape[1], da_drivers.shape[2])
     model_da.rnn_layer.build(input_shape=da_shape)
     
-    # initialize the states with the previously trained states 
-    model_da.rnn_layer.reset_states(states=[h, c])
-    # make predictions and store states for updating with EnKF 
-    da_preds = model_da.predict(da_drivers, batch_size = n_en * n_segs) # make this dynamic batch size based on n_en
-    da_h, da_c = model_da.rnn_layer.states
+    if model_type == 'lstm':
+        # initialize the states with the previously trained states 
+        model_da.rnn_layer.reset_states(states=[h, c])
+        # make predictions and store states for updating with EnKF 
+        da_preds = model_da.predict(da_drivers, batch_size = n_en * n_segs) # make this dynamic batch size based on n_en
+        da_h, da_c = model_da.rnn_layer.states
+    elif model_type == 'rgcn':
+        da_preds = model_da(da_drivers, h_init = h, c_init = c)
+        da_preds = da_preds.numpy() 
+        da_h = model_da.h_gr
+        da_c = model_da.c_gr
+        
     np.save(da_h_file, da_h.numpy())
     np.save(da_c_file, da_c.numpy())
     if update_h_c:
@@ -708,8 +730,20 @@ def predict_and_forecast(out_h_file,
     if store_forecasts:
         Y_forecasts[:,0,0,:] = Y[0:n_segs,0,:] # storing nowcast 
         cur_model = forecast_model_list[0] 
-        # cur_preds_f = forecast_pred_list[t] 
-        cur_model.rnn_layer.reset_states(states=[h, c])
+        if update_h_c:
+            forecast_h, forecast_c = get_updated_lstm_states(
+                    Y = Y,
+                    n_segs = n_segs,
+                    n_en = n_en,
+                    hidden_units = hidden_units, 
+                    cur_step = 0)
+        else:
+            forecast_h = np.load(da_h_file, allow_pickle=True)
+            forecast_c = np.load(da_c_file, allow_pickle=True)
+        if model_type == 'lstm': 
+            cur_model.rnn_layer.reset_states(states=[forecast_h, forecast_c])
+        # elif model_type == 'rgcn': 
+            # cur_model(forecast_drivers) 
         for tt in range(1, f_horizon):
             cur_t = 0 + tt
             if tt > 0: 
@@ -823,8 +857,6 @@ def predict_and_forecast(out_h_file,
     
         da_h = np.load(da_h_file, allow_pickle=True)
         da_c = np.load(da_c_file, allow_pickle=True)
-        forecast_h = np.load(da_h_file, allow_pickle=True)
-        forecast_c = np.load(da_c_file, allow_pickle=True)
         
         if ar1_temp: 
             # update yesterday's temperature driver from Y; need to scale first though 
@@ -923,6 +955,16 @@ def predict_and_forecast(out_h_file,
         
         if store_forecasts:
             Y_forecasts[:,t,0,:] = Y[0:n_segs,t,:] # storing nowcast 
+            if update_h_c:
+                forecast_h, forecast_c = get_updated_lstm_states(
+                        Y = Y,
+                        n_segs = n_segs,
+                        n_en = n_en,
+                        hidden_units = hidden_units, 
+                        cur_step = t)
+            else:
+                forecast_h = np.load(da_h_file, allow_pickle=True)
+                forecast_c = np.load(da_c_file, allow_pickle=True)
             cur_model = forecast_model_list[t] 
             cur_model.rnn_layer.reset_states(states=[forecast_h, forecast_c])
             for tt in range(1, f_horizon):
@@ -1006,10 +1048,12 @@ def forecast(
             
     return Y_forecasts 
     
-def make_forecast_models(n_step,
+def make_forecast_models(model_type,
+                         n_step,
                          hidden_units,
                          weights_dir,
                          model_locations,
+                         dist_mat,
                          x_pred,
                          n_en):
     
@@ -1017,9 +1061,14 @@ def make_forecast_models(n_step,
     all_models = [] # empty list 
     all_preds = np.repeat(x_pred,n_step,axis=1).reshape(x_pred.shape[0],x_pred.shape[1],n_step,x_pred.shape[2])
     for i in range(n_step):
-        cur_model = LSTMDA(hidden_units) # model that will make forecasts many days into future 
-        cur_model.load_weights(weights_dir).expect_partial()
-        cur_model.rnn_layer.build(input_shape=forecast_shape) # full timestep forecast 
+        if model_type == 'lstm':
+            cur_model = LSTMDA(hidden_units)  
+            cur_model.load_weights(weights_dir).expect_partial()
+            cur_model.rnn_layer.build(input_shape=forecast_shape) 
+        elif model_type == 'rgcn': 
+            cur_model = RGCN(hidden_units, dist_mat)  
+            cur_model.load_weights(weights_dir).expect_partial()
+            cur_model.rnn_layer.build(input_shape=forecast_shape) 
 
         all_models.append(cur_model)
     

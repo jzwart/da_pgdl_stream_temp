@@ -3,6 +3,7 @@ import numpy as np
 import sys
 sys.path.insert(1, '5_pgdl_pretrain/src')
 from LSTMDA import LSTMDA, rmse_masked
+from RGCNDA import RGCN
 sys.path.insert(1, '6_pgdl_forecast/src')
 from dl_da_iteration_ar1 import dl_da_iter
 
@@ -30,7 +31,8 @@ from dl_da_iteration_ar1 import dl_da_iter
 #     np.save(out_h_file, h.numpy())
 #     np.save(out_c_file, c.numpy())
 
-def train_model(x_trn, 
+def train_model(model_type,
+                x_trn, 
                 y_trn,
                 obs_trn,
                 obs_trn_ar1, 
@@ -61,6 +63,7 @@ def train_model(x_trn,
                 ar1_temp_pos,
                 n_segs,
                 model_locations,
+                dist_mat, 
                 dates_trn,
                 update_h_c,
                 h_sd,
@@ -68,17 +71,31 @@ def train_model(x_trn,
 ):
 
     if pre_train:
-        n_batch, seq_len, n_feat = x_trn.shape
-        pretrain_model = LSTMDA(hidden_units)
-        pretrain_model(x_trn)
-    
-        pretrain_model.compile(loss=rmse_masked, optimizer=tf.keras.optimizers.Adam(learning_rate=tf.Variable(learn_rate_pre)))
-        pretrain_model.fit(x=x_trn, y=y_trn, epochs=n_epochs_pre, batch_size=n_batch)
-    
-        pretrain_model.save_weights(weights_dir)
-        h, c = pretrain_model.rnn_layer.states
-        np.save(out_h_file, h.numpy())
-        np.save(out_c_file, c.numpy())
+        if model_type == 'lstm': 
+            n_batch, seq_len, n_feat = x_trn.shape
+            pretrain_model = LSTMDA(hidden_units)
+            pretrain_model(x_trn)
+        
+            pretrain_model.compile(loss=rmse_masked, optimizer=tf.keras.optimizers.Adam(learning_rate=tf.Variable(learn_rate_pre)))
+            pretrain_model.fit(x=x_trn, y=y_trn, epochs=n_epochs_pre, batch_size=n_batch)
+        
+            pretrain_model.save_weights(weights_dir)
+            h, c = pretrain_model.rnn_layer.states
+            np.save(out_h_file, h.numpy())
+            np.save(out_c_file, c.numpy())
+        elif model_type == 'rgcn':
+            n_batch, seq_len, n_feat = x_trn.shape
+            pretrain_model = RGCN(hidden_units, dist_mat)
+            pretrain_model.rnn_layer.build(input_shape=x_trn.shape)
+            pretrain_model.compile(loss=rmse_masked, optimizer=tf.keras.optimizers.Adam(learning_rate=tf.Variable(learn_rate_pre)), run_eagerly=True) # need the run eagerly to get out the states (might make this run slower so we should think about not doing this and instead trianing & then predicting on entire train input data to get out states from last time step)
+            pretrain_model.fit(x=x_trn, y=y_trn, epochs=n_epochs_pre, batch_size=n_batch)
+            
+            pretrain_model.save_weights(weights_dir)
+            h = pretrain_model.h_gr # h corresponding to the predictions
+            c = pretrain_model.c_gr # c corresponding to the predictions
+            
+            np.save(out_h_file, h.numpy())
+            np.save(out_c_file, c.numpy())
         
     if fine_tune_iter:
         dl_da_iter(cycles = cycles,
@@ -128,21 +145,37 @@ def train_model(x_trn,
             scaled_obs = (obs_trn_ar1 - obs_mean) / (obs_std + 1e-10)
             x_trn[:,:,ar1_temp_pos] = np.where(np.isnan(scaled_obs[:,:,0]), x_trn[:,:,ar1_temp_pos], scaled_obs[:,:,0])
         
-        n_batch, seq_len, n_feat = x_trn.shape
-        fine_tune_model = LSTMDA(hidden_units) 
-        fine_tune_model.load_weights(weights_dir).expect_partial()
-        fine_tune_model(x_trn) 
+        if model_type == 'lstm': 
+            n_batch, seq_len, n_feat = x_trn.shape
+            fine_tune_model = LSTMDA(hidden_units) 
+            fine_tune_model.load_weights(weights_dir).expect_partial()
+            fine_tune_model(x_trn) 
+            
+            fine_tune_model.compile(loss=rmse_masked, optimizer=tf.keras.optimizers.Adam(learning_rate=tf.Variable(learn_rate_fine)))
+            fine_tune_model.fit(x=x_trn, y=obs_trn, epochs=n_epochs_fine, batch_size=n_batch)
+            
+            fine_tune_model.save_weights(weights_dir)
         
-        fine_tune_model.compile(loss=rmse_masked, optimizer=tf.keras.optimizers.Adam(learning_rate=tf.Variable(learn_rate_fine)))
-        fine_tune_model.fit(x=x_trn, y=obs_trn, epochs=n_epochs_fine, batch_size=n_batch)
-        
-        fine_tune_model.save_weights(weights_dir)
+            h, c = fine_tune_model.rnn_layer.states
+            np.save(out_h_file, h.numpy())
+            np.save(out_c_file, c.numpy())
+            # trn_preds = fine_tune_model.predict(x_trn, batch_size = n_en * n_segs)
     
-        h, c = fine_tune_model.rnn_layer.states
-        np.save(out_h_file, h.numpy())
-        np.save(out_c_file, c.numpy())
-        # trn_preds = fine_tune_model.predict(x_trn, batch_size = n_en * n_segs)
-    
+        elif model_type == 'rgcn':
+            n_batch, seq_len, n_feat = x_trn.shape
+            fine_tune_model = RGCN(hidden_units, dist_mat)
+            fine_tune_model.load_weights(weights_dir).expect_partial()
+            fine_tune_model(x_trn) 
+            
+            fine_tune_model.compile(loss=rmse_masked, optimizer=tf.keras.optimizers.Adam(learning_rate=tf.Variable(learn_rate_fine)), run_eagerly=True) # need the run eagerly to get out the states (might make this run slower so we should think about not doing this and instead trianing & then predicting on entire train input data to get out states from last time step)
+            fine_tune_model.fit(x=x_trn, y=obs_trn, epochs=n_epochs_fine, batch_size=n_batch)
+            
+            fine_tune_model.save_weights(weights_dir)
+            h = fine_tune_model.h_gr # h corresponding to the predictions
+            c = fine_tune_model.c_gr # c corresponding to the predictions
+            
+            np.save(out_h_file, h.numpy())
+            np.save(out_c_file, c.numpy())
     
     
     

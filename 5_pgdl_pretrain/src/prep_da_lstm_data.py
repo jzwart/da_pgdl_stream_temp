@@ -140,6 +140,8 @@ def fmt_dataset(dataset):
 def prep_data_lstm_da(
     obs_temp_file,
     driver_file,
+    dist_mat_file, 
+    dist_mat_direction, 
     seg_id,
     start_date_trn,
     end_date_trn,
@@ -284,6 +286,31 @@ def prep_data_lstm_da(
     obs_pred = np.moveaxis(obs_pred, 1, 0)  # should now be in shape of [nseg, seq_len, nfeats]
     # obs_pred = np.repeat(obs_pred, n_en, axis = 0)  
     
+    # read in distance matrix 
+    n_segs = len(seg_id)
+    dist_mat_out = np.array(np.ones((n_en*n_segs,n_en*n_segs)) * np.inf)
+    rowcolnames_out = np.array(np.ones((n_en*n_segs)) * np.inf)
+    dist_mat = np.load(dist_mat_file)
+    rowcolnames = dist_mat['rowcolnames'] # seg_id_nat 
+    dist_mat = dist_mat[dist_mat_direction] # pull out only direction we want 
+    seg_id_char = np.array([str(x) for x in seg_id])
+    seg_idxs = np.where(np.isin(rowcolnames, seg_id_char))
+    seg_idxs_list = np.array(seg_idxs).reshape((len(seg_id))).tolist()
+    # pull out dist matrix for current seg_id_nat 
+    dist_mat = dist_mat[seg_idxs_list,:]
+    dist_mat = dist_mat[:,seg_idxs_list] 
+    for n in range(n_en):
+        cur_start = n * n_segs
+        cur_end = cur_start + n_segs
+        h_fill = np.tile(dist_mat, n+1) # horizontal fill 
+        v_fill = np.tile(dist_mat, ((n+1), 1)) # vertical fill 
+        dist_mat_out[cur_start:cur_end, 0:cur_end] = h_fill 
+        dist_mat_out[0:cur_end, cur_start:cur_end] = v_fill
+        rowcolnames_out[cur_start:cur_end] = rowcolnames[seg_idxs_list].astype(int).reshape((len(seg_id)))
+    
+    dist_mat_out = prep_adj_matrix(mat = dist_mat_out, rowcolnames= rowcolnames_out)
+    
+    
     if ar1_temp:
         data = {
             "x_trn": x_trn,
@@ -301,6 +328,7 @@ def prep_data_lstm_da(
             "obs_std": obs_std, 
             "doy_trn": doy_trn,
             "doy_pred": doy_pred,
+            "distance_matrix": dist_mat_out,
         }
     else: 
         data = {
@@ -315,6 +343,7 @@ def prep_data_lstm_da(
             "obs_pred": obs_pred,
             "doy_trn": doy_trn,
             "doy_pred": doy_pred,
+            "distance_matrix": dist_mat_out,
         }
     if out_file:
         np.savez_compressed(out_file, **data)
@@ -396,7 +425,52 @@ def get_data_lstm_da(data_file,
         dates = data['dates_pred'] 
         dates_trn = data['dates_trn'] 
     
-    return x_trn, y_trn, obs_trn, obs_trn_ar1, x_pred, x_pred_da, x_pred_f, obs_array, model_locations, dates, dates_trn, seg_tave_water_mean, seg_tave_water_std, obs_mean, obs_std
+    dist_mat = data['distance_matrix'] 
     
+    return x_trn, y_trn, obs_trn, obs_trn_ar1, x_pred, x_pred_da, x_pred_f, obs_array, model_locations, dist_mat, dates, dates_trn, seg_tave_water_mean, seg_tave_water_std, obs_mean, obs_std
     
+   
+    
+def sort_dist_matrix(mat, row_col_names):
+    """
+    sort the distance matrix by seg_id_nat
+    :return:
+    """
+    df = pd.DataFrame(mat, columns=row_col_names, index=row_col_names)
+    df = df.sort_index(axis=0)
+    df = df.sort_index(axis=1)
+    df = df.to_numpy()
+    return df
+
+
+def prep_adj_matrix(mat, rowcolnames, out_file=None):
+    """
+    process adj matrix.
+    **The resulting matrix is sorted by seg_id_nat **
+    :param infile:
+    :param rowcolnames: row and column names of distance matrix 
+    :param out_file:
+    :return: [numpy array] processed adjacency matrix
+    """
+    
+    adj = sort_dist_matrix(mat, rowcolnames)
+    adj = np.where(np.isinf(adj), 0, adj)
+    adj = -adj
+    mean_adj = np.mean(adj[adj != 0])
+    std_adj = np.std(adj[adj != 0])
+    adj[adj != 0] = adj[adj != 0] - mean_adj
+    adj[adj != 0] = adj[adj != 0] / std_adj
+    adj[adj != 0] = 1 / (1 + np.exp(-adj[adj != 0]))
+
+    I = np.eye(adj.shape[0])
+    A_hat = adj.copy() + I
+    D = np.sum(A_hat, axis=1)
+    D_inv = D ** -1.0
+    D_inv = np.diag(D_inv)
+    A_hat = np.matmul(D_inv, A_hat)
+    if out_file:
+        np.savez_compressed(out_file, dist_matrix=A_hat)
+    return A_hat
+
+
     

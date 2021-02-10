@@ -3,9 +3,10 @@ library(dplyr)
 library(tidyverse)
 library(ggplot2)
 library(reticulate)
+library(verification) # for CRPS calculation
 np = import('numpy')
 
-d = np$load('5_pgdl_pretrain/out/simple_lstm_da_150epoch_0.5beta_0.9alpha_Truehc_TrueAR1_6HiddenUnits.npz')
+d = np$load('5_pgdl_pretrain/out/lstm_da_150epoch_0.5beta_0.9alpha_Truehc_TrueAR1_6HiddenUnits.npz')
 
 obs = d$f[['obs']] #[,,1:10]
 obs_withheld = d$f[['obs_orig']] # if we withhold observations from DA steps
@@ -89,7 +90,7 @@ for(i in 1:n_step){
 
 # plot forecasts
 #Y_forecast[,,1,] = Y[1:n_segs,,]
-issue_times = 110:120
+issue_times = 130:140
 for(j in cur_model_idxs){
   # obs[,1,1]
   matrix_loc = which(cur_model_idxs == j)
@@ -114,13 +115,13 @@ for(j in cur_model_idxs){
       lines(Y_forecast[matrix_loc,t,,i] ~ cur_dates, col = alpha('grey', .5))
     }
     lines(mean_pred ~ cur_dates, lwd = 2, col = alpha('black', .5))
-    lines(persistence_forecast[matrix_loc,t,,1] ~ cur_dates, lwd = 2, col = alpha('red',.5)) # persistence forecast
+    # lines(persistence_forecast[matrix_loc,t,,1] ~ cur_dates, lwd = 2, col = alpha('red',.5)) # persistence forecast
   }
   points(obs[matrix_loc,1,issue_times] ~ dates[issue_times], col = 'red', pch = 16, cex = 1.2)
   arrows(dates[issue_times], obs[matrix_loc,1,issue_times]+R[matrix_loc,matrix_loc,issue_times], dates[issue_times], obs[matrix_loc,1,issue_times]-R[matrix_loc,matrix_loc,issue_times],
          angle = 90, length = .05, col = 'red', code = 3)
   lines(mean_pred_no_da[issue_times] ~ dates[issue_times], lwd =5 ,col = alpha('blue',.5))
-  lines(mean_pred_da[issue_times] ~ dates[issue_times], lwd =2 , lty = 2, col = alpha('green',.9))
+  # lines(mean_pred_da[issue_times] ~ dates[issue_times], lwd =2 , lty = 2, col = alpha('green',.9))
 }
 
 
@@ -130,13 +131,16 @@ out = crossing(tibble(issue_date = dates[issue_times]), tibble(lead_time = seq(0
 out = mutate(out,
              valid_time = issue_date + lubridate::days(lead_time),
              mean_da_forecast = NA,
+             sd_da_forecast = NA,
              persistence = NA)
 for(t in issue_times){
   cur_date = dates[t]
   matrix_loc = which(cur_model_idxs == 1573)
   mean_pred = rowMeans(Y_forecast[matrix_loc,t,,])
+  sd_pred = apply(Y_forecast[matrix_loc,t,,], 1, sd)
   persistence = rowMeans(persistence_forecast[matrix_loc,t,,])
   out$mean_da_forecast = ifelse(out$issue_date==cur_date, mean_pred, out$mean_da_forecast)
+  out$sd_da_forecast = ifelse(out$issue_date==cur_date, sd_pred, out$sd_da_forecast)
   out$persistence = ifelse(out$issue_date==cur_date, persistence, out$persistence)
 }
 obs_df = tibble(date = dates[issue_times], obs_temp = obs[1,1,issue_times])
@@ -151,12 +155,14 @@ RMSE = function(m, o, na.rm = T){
 
 accuracy_sum = out %>%
   group_by(lead_time) %>%
-  summarise(DA = RMSE(mean_da_forecast, obs_temp),
-            #No_DA = RMSE(mean_pred_no_da, obs_temp),
+  summarise(DA_ar1 = RMSE(mean_da_forecast_ar1, obs_temp),
+            DA_no_ar1 = RMSE(mean_da_forecast_no_ar1, obs_temp),
+            No_DA_ar1 = RMSE(mean_pred_no_da_ar1, obs_temp),
+            No_DA_no_ar1 = RMSE(mean_pred_no_da_no_ar1, obs_temp),
             No_DA_persistence = RMSE(persistence, obs_temp)) %>%
   pivot_longer(cols = contains('DA'), names_to = 'forecast_type',values_to = 'rmse')
 windows()
-ggplot(accuracy_sum, aes(x = lead_time, y = rmse, group = forecast_type, color = forecast_type))+
+ggplot(filter(accuracy_sum, lead_time >0), aes(x = lead_time, y = rmse, group = forecast_type, color = forecast_type))+
   geom_line(size = 2) +
   geom_point(size = 3) +
   theme_minimal()+
@@ -164,9 +170,31 @@ ggplot(accuracy_sum, aes(x = lead_time, y = rmse, group = forecast_type, color =
         axis.title = element_text(size = 16))+
   xlab('Lead Time (days)') +
   ylab('RMSE (C)') +
-  xlim(c(1,f_horizon-1))+
+  # xlim(c(1,f_horizon-1))+
   scale_color_discrete(name = "Model Type",
-                      labels = c("DA", "Persistence"))
+                      labels = c("DA w/ AR1",'DA w/o AR1', 'AR1 w/o DA', "No DA or AR1", "Persistence"))
+
+
+# CRPS calculation
+accuracy_crps = tibble(lead_time = seq(0,f_horizon-1), DA_crps = NA)
+for(i in accuracy_crps$lead_time){
+  cur_out = dplyr::filter(dplyr::select(out, lead_time, mean_da_forecast, sd_da_forecast, obs_temp), lead_time == i)
+  cur_crps = crps(obs = cur_out$obs_temp, pred = as.matrix(cur_out[c('mean_da_forecast','sd_da_forecast')]))
+  accuracy_crps$DA_crps[accuracy_crps$lead_time == i] = mean(cur_crps$crps, na.rm = T)
+  # brier(obs = cur_out$obs_temp, pred = as.matrix(cur_out[c('mean_da_forecast','sd_da_forecast')]))
+}
+windows()
+ggplot(filter(accuracy_crps, lead_time >0), aes(x = lead_time, y = DA_crps))+
+  geom_line(size = 2) +
+  geom_point(size = 3) +
+  theme_minimal()+
+  theme(axis.text = element_text(size =14),
+        axis.title = element_text(size = 16))+
+  xlab('Lead Time (days)') +
+  ylab('CRPS (C)')
+  # xlim(c(1,f_horizon-1))+
+  # scale_color_discrete(name = "Model Type",
+  #                      labels = c("DA w/ AR1",'DA w/o AR1', 'AR1 w/o DA', "No DA or AR1", "Persistence"))
 
 
 
@@ -403,12 +431,12 @@ ggplot(accuracy, aes(x = No_DA_rmse, y = rmse_improve, color = lead_time))+
   geom_abline(slope = 0, intercept = 0, linetype = 'dashed', size = 2)+
   geom_abline(slope = 1, intercept = 0)
 
-ggplot(dplyr::filter(accuracy,lead_time <4, No_DA_rmse <3), aes(x = No_DA_rmse, y = rmse_improve, color = lead_time, group = lead_time))+
+ggplot(dplyr::filter(accuracy,lead_time %in% c(1,2,3,4), No_DA_rmse <3), aes(x = No_DA_rmse, y = rmse_improve, color = lead_time, group = lead_time))+
   geom_point(size = 3, alpha = .4) +
   theme_minimal()+
   theme(axis.text = element_text(size =14),
         axis.title = element_text(size = 16))+
-  xlab('LSTM Absolute Error (C)') +
+  xlab('LSTM RMSE (C)') +
   ylab('No DA error - DA error (C)') +
   geom_abline(slope = 0, intercept = 0, linetype = 'dashed', size = 2)+
   geom_abline(slope = 1, intercept = 0) +
@@ -423,6 +451,16 @@ ggplot(dplyr::filter(accuracy,lead_time == 1), aes(x = issue_date, y = DA))+
   ylab('DA error (C)')+
   geom_abline(slope = 0, intercept = mean(accuracy$DA[accuracy$lead_time ==1],na.rm = T),
               linetype ='dashed')
+
+ggplot(dplyr::filter(accuracy,lead_time %in% c(1,2,3,4)), aes(x = issue_date, y = rmse_improve, color = lead_time, group = lead_time))+
+  geom_point(size = 1) +
+  theme_minimal()+
+  theme(axis.text = element_text(size =14),
+        axis.title = element_text(size = 16))+
+  xlab('Date') +
+  ylab('No DA error - DA error (C)') +
+  geom_abline(slope = 0, intercept = 0, linetype = 'dashed', size = 2)+
+  geom_abline(slope = 1, intercept = 0) + geom_smooth(se = F, size =2)
 
 ggplot(dplyr::filter(accuracy,lead_time %in% c(0,1,2,3)), aes(x = valid_time, y = mean_da_forecast, color = lead_time, group = lead_time))+
   geom_line() +
