@@ -23,9 +23,11 @@ process_error = True # T/F add process error during DA step
 store_raw_states = True # T/F store the LSTM states without data assimilation 
 store_forecasts = True # T/F store predictions that are in the future 
 force_pos = True # T/F force estimates to be positive 
-update_h_c = True # T/F update h and c states with DA 
-ar1_temp = False # T/F include yesterday's water temp as driver 
+update_h_c = False # T/F update h and c states with DA 
+ar1_temp = True # T/F include yesterday's water temp as driver 
 ar1_up_temp = False # T/F include yesterday's upstream temperature as a driver 
+mc_dropout = False # T/F to include monte carlo dropout estimates 
+mc_dropout_rate = 0.5 # rate for monte carlo dropout 
 f_horizon = 8 # forecast horizon in days (how many days into the future to make predictions)
 beta = 0.5 # weighting for how much uncertainty should go to observed vs. 
                # unobserved states (lower beta attributes most of the 
@@ -34,7 +36,7 @@ beta = 0.5 # weighting for how much uncertainty should go to observed vs.
 alpha = 0.9  # weight for how quickly the process error is allowed to 
                # adapt (low alpha quickly changes process error 
                # based on current innovations)
-psi = 0.6 # weighting for how much uncertainty goes to long-term average vs. 
+psi = 0.95 # weighting for how much uncertainty goes to long-term average vs. 
             # dynamic uncertainty (higher psi places higher weight on long-term average uncertainty)
 temp_obs_sd = .5 # standard deviation of temperature observations 
 h_sd = 0.02
@@ -52,8 +54,8 @@ random.seed(seed)
 n_en = 50
 learn_rate_pre = 0.05
 learn_rate_fine = 0.05
-n_epochs_pre = 20# number of epochs for pretraining 
-n_epochs_fine = 150 # number of epochs for finetuning 
+n_epochs_pre = 30# number of epochs for pretraining 
+n_epochs_fine = 250 # number of epochs for finetuning 
 hidden_units = 6 # number of hidden units 
 cycles = 10 # number of cycles for DA-DL routine 
 weights_dir = '5_pgdl_pretrain/out/lstm_da_trained_wgts/'
@@ -76,6 +78,8 @@ dist_mat_file = "1_model_fabric/in/distance_matrix.npz"
 dist_mat_direction = 'downstream' # which direction to go for distance matrix 
 
 seg_ids = [1573] # needs to be a list of seg_ids (even if one segment)
+# less-impacted segments - 2046, 2037
+# lordville segment - 1573 
 n_segs = len(seg_ids)
 
 x_vars = ["seg_tave_air", "seginc_swrad", "seg_rain", "seg_humid", "seg_slope","seg_length","seg_elev"]
@@ -131,6 +135,8 @@ train_model(model_type,
             learn_rate_fine, 
             n_epochs_pre, 
             n_epochs_fine,
+            mc_dropout,
+            mc_dropout_rate,
             weights_dir,
             out_h_file, 
             out_c_file,
@@ -165,6 +171,8 @@ Set up data assimilation matrices
 '''
 
 n_states_obs, n_step, state_sd, n_states_est, obs_mat, Y, Q, P, R, H, Q_ave, Y_no_da, Y_forecasts, forecast_model_list, forecast_pred_array = get_da_objects(model_type,
+                mc_dropout,
+                mc_dropout_rate,
                 obs_array,
                 x_pred_f,
                 temp_obs_sd,
@@ -188,7 +196,9 @@ h & c states from last time step
 '''
 
 Y, Y_no_da, Y_forecasts, obs_mat, R, Q, P = predict_and_forecast(model_type, 
-                                                                 out_h_file,
+                                                                  mc_dropout, 
+                                                                  mc_dropout_rate,
+                                                                  out_h_file,
                     out_c_file,
                     da_h_file,
                     da_c_file,
@@ -295,6 +305,6 @@ else:
     #"obs_orig": obs_mat_orig,
     }
 
-out_file = '5_pgdl_pretrain/out/%s_da_%sepoch_%sbeta_%salpha_%shc_%sAR1_%sHiddenUnits.npz' % (model_type, n_epochs_fine, beta, alpha, update_h_c, ar1_temp, hidden_units) 
+out_file = '5_pgdl_pretrain/out/%s_da_segid%s_%sepoch_%sbeta_%salpha_%shc_%sAR1_%sHiddenUnits_%sMCdropout.npz' % (model_type, seg_ids, n_epochs_fine, beta, alpha, update_h_c, ar1_temp, hidden_units, mc_dropout) 
 np.savez(out_file, **out)
 

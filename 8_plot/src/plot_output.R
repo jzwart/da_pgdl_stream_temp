@@ -6,7 +6,10 @@ library(reticulate)
 library(verification) # for CRPS calculation
 np = import('numpy')
 
-d = np$load('5_pgdl_pretrain/out/lstm_da_150epoch_0.5beta_0.9alpha_Truehc_TrueAR1_6HiddenUnits.npz')
+d = np$load('5_pgdl_pretrain/out/lstm_da_segid[2046]_250epoch_0.5beta_0.9alpha_Truehc_FalseAR1_6HiddenUnits_FalseMCdropout.npz')
+res_data = read.csv('3_observations/in/reservoir_releases_lordville.csv', stringsAsFactors = F) %>%
+  as_tibble() %>%
+  mutate(date = as.Date(date))
 
 obs = d$f[['obs']] #[,,1:10]
 obs_withheld = d$f[['obs_orig']] # if we withhold observations from DA steps
@@ -90,17 +93,18 @@ for(i in 1:n_step){
 
 # plot forecasts
 #Y_forecast[,,1,] = Y[1:n_segs,,]
-issue_times = 130:140
+issue_times = 101:111
 for(j in cur_model_idxs){
   # obs[,1,1]
   matrix_loc = which(cur_model_idxs == j)
+  valid_times = issue_times[1]:(issue_times[length(issue_times)]+ f_horizon-2)
 
   mean_pred_no_da = rowMeans(Y_no_da[matrix_loc,,]) # colMeans(preds_no_da[,,matrix_loc])
   mean_pred_da = rowMeans(Y[matrix_loc,,]) # colMeans(preds_no_da[,,matrix_loc])
 
   windows(width = 14, height = 10)
   par(mar = c(6,6,4,3))
-  plot(Y_forecast[matrix_loc,issue_times,1,1] ~ dates[issue_times], type = 'l',
+  plot(Y_forecast[matrix_loc,valid_times,1,1] ~ dates[valid_times], type = 'l',
        ylab = 'Stream Temp (C)', xlab = '', lty=0,
        #ylim = c(0,25),
        ylim =range(c(Y_forecast[matrix_loc,issue_times,,], obs[matrix_loc,1,issue_times]), na.rm = T), #, Y_no_assim[matrix_loc,,])
@@ -117,10 +121,10 @@ for(j in cur_model_idxs){
     lines(mean_pred ~ cur_dates, lwd = 2, col = alpha('black', .5))
     # lines(persistence_forecast[matrix_loc,t,,1] ~ cur_dates, lwd = 2, col = alpha('red',.5)) # persistence forecast
   }
-  points(obs[matrix_loc,1,issue_times] ~ dates[issue_times], col = 'red', pch = 16, cex = 1.2)
-  arrows(dates[issue_times], obs[matrix_loc,1,issue_times]+R[matrix_loc,matrix_loc,issue_times], dates[issue_times], obs[matrix_loc,1,issue_times]-R[matrix_loc,matrix_loc,issue_times],
+  points(obs[matrix_loc,1,valid_times] ~ dates[valid_times], col = 'red', pch = 16, cex = 1.2)
+  arrows(dates[valid_times], obs[matrix_loc,1,valid_times]+R[matrix_loc,matrix_loc,valid_times], dates[valid_times], obs[matrix_loc,1,valid_times]-R[matrix_loc,matrix_loc,valid_times],
          angle = 90, length = .05, col = 'red', code = 3)
-  lines(mean_pred_no_da[issue_times] ~ dates[issue_times], lwd =5 ,col = alpha('blue',.5))
+  lines(mean_pred_no_da[valid_times] ~ dates[valid_times], lwd =5 ,col = alpha('blue',.5))
   # lines(mean_pred_da[issue_times] ~ dates[issue_times], lwd =2 , lty = 2, col = alpha('green',.9))
 }
 
@@ -132,15 +136,20 @@ out = mutate(out,
              valid_time = issue_date + lubridate::days(lead_time),
              mean_da_forecast = NA,
              sd_da_forecast = NA,
+             upper_ci = NA,
+             lower_ci = NA,
              persistence = NA)
 for(t in issue_times){
   cur_date = dates[t]
-  matrix_loc = which(cur_model_idxs == 1573)
+  matrix_loc = which(cur_model_idxs == cur_model_idxs)
   mean_pred = rowMeans(Y_forecast[matrix_loc,t,,])
   sd_pred = apply(Y_forecast[matrix_loc,t,,], 1, sd)
   persistence = rowMeans(persistence_forecast[matrix_loc,t,,])
+  ci = apply(Y_forecast[matrix_loc,t,,], 1, Rmisc::CI)
   out$mean_da_forecast = ifelse(out$issue_date==cur_date, mean_pred, out$mean_da_forecast)
   out$sd_da_forecast = ifelse(out$issue_date==cur_date, sd_pred, out$sd_da_forecast)
+  out$upper_ci = ifelse(out$issue_date==cur_date, ci[1,], out$upper_ci)
+  out$lower_ci = ifelse(out$issue_date==cur_date, ci[3,], out$lower_ci)
   out$persistence = ifelse(out$issue_date==cur_date, persistence, out$persistence)
 }
 obs_df = tibble(date = dates[issue_times], obs_temp = obs[1,1,issue_times])
@@ -153,32 +162,32 @@ RMSE = function(m, o, na.rm = T){
   sqrt(mean((m - o)^2, na.rm = na.rm))
 }
 
-accuracy_sum = out %>%
-  group_by(lead_time) %>%
-  summarise(DA_ar1 = RMSE(mean_da_forecast_ar1, obs_temp),
-            DA_no_ar1 = RMSE(mean_da_forecast_no_ar1, obs_temp),
-            No_DA_ar1 = RMSE(mean_pred_no_da_ar1, obs_temp),
-            No_DA_no_ar1 = RMSE(mean_pred_no_da_no_ar1, obs_temp),
-            No_DA_persistence = RMSE(persistence, obs_temp)) %>%
-  pivot_longer(cols = contains('DA'), names_to = 'forecast_type',values_to = 'rmse')
-windows()
-ggplot(filter(accuracy_sum, lead_time >0), aes(x = lead_time, y = rmse, group = forecast_type, color = forecast_type))+
-  geom_line(size = 2) +
-  geom_point(size = 3) +
-  theme_minimal()+
-  theme(axis.text = element_text(size =14),
-        axis.title = element_text(size = 16))+
-  xlab('Lead Time (days)') +
-  ylab('RMSE (C)') +
-  # xlim(c(1,f_horizon-1))+
-  scale_color_discrete(name = "Model Type",
-                      labels = c("DA w/ AR1",'DA w/o AR1', 'AR1 w/o DA', "No DA or AR1", "Persistence"))
+# accuracy_sum = out %>%
+#   group_by(lead_time) %>%
+#   summarise(DA_ar1 = RMSE(mean_da_forecast_ar1, obs_temp),
+#             DA_no_ar1 = RMSE(mean_da_forecast_no_ar1, obs_temp),
+#             No_DA_ar1 = RMSE(mean_pred_no_da_ar1, obs_temp),
+#             No_DA_no_ar1 = RMSE(mean_pred_no_da_no_ar1, obs_temp),
+#             No_DA_persistence = RMSE(persistence, obs_temp)) %>%
+#   pivot_longer(cols = contains('DA'), names_to = 'forecast_type',values_to = 'rmse')
+# windows()
+# ggplot(filter(accuracy_sum, lead_time >0), aes(x = lead_time, y = rmse, group = forecast_type, color = forecast_type))+
+#   geom_line(size = 2) +
+#   geom_point(size = 3) +
+#   theme_minimal()+
+#   theme(axis.text = element_text(size =14),
+#         axis.title = element_text(size = 16))+
+#   xlab('Lead Time (days)') +
+#   ylab('RMSE (C)') +
+#   # xlim(c(1,f_horizon-1))+
+#   scale_color_discrete(name = "Model Type",
+#                       labels = c("DA w/ AR1",'DA w/o AR1', 'AR1 w/o DA', "No DA or AR1", "Persistence"))
 
 
 # CRPS calculation
-accuracy_crps = tibble(lead_time = seq(0,f_horizon-1), DA_crps = NA)
+accuracy_crps = tibble(lead_time = seq(0,f_horizon-1), DA_crps = NA, No_DA_crps = NA)
 for(i in accuracy_crps$lead_time){
-  cur_out = dplyr::filter(dplyr::select(out, lead_time, mean_da_forecast, sd_da_forecast, obs_temp), lead_time == i)
+  cur_out = dplyr::filter(dplyr::select(out, lead_time, mean_da_forecast, sd_da_forecast, obs_temp, mean_pred_no_da), lead_time == i)
   cur_crps = crps(obs = cur_out$obs_temp, pred = as.matrix(cur_out[c('mean_da_forecast','sd_da_forecast')]))
   accuracy_crps$DA_crps[accuracy_crps$lead_time == i] = mean(cur_crps$crps, na.rm = T)
   # brier(obs = cur_out$obs_temp, pred = as.matrix(cur_out[c('mean_da_forecast','sd_da_forecast')]))
@@ -196,7 +205,35 @@ ggplot(filter(accuracy_crps, lead_time >0), aes(x = lead_time, y = DA_crps))+
   # scale_color_discrete(name = "Model Type",
   #                      labels = c("DA w/ AR1",'DA w/o AR1', 'AR1 w/o DA', "No DA or AR1", "Persistence"))
 
+t_col <- function(color, percent = 50, name = NULL) {
+  #	  color = color name
+  #	percent = % transparency
+  #	   name = an optional name for the color
+  ## Get RGB values for named color
+  rgb.val <- col2rgb(color)
+  ## Make new color using input color as base and alpha set by transparency
+  t.col <- rgb(rgb.val[1], rgb.val[2], rgb.val[3],
+               max = 255,
+               alpha = (100-percent)*255/100,
+               names = name)
+  ## Save the color
+  invisible(t.col)
 
+}
+
+# plotting forecast with confidence intervals
+issue_time_start = as.Date('2014-08-10')
+issue_time_end = as.Date('2014-08-12')
+windows()
+ggplot(dplyr::filter(out, issue_date >= issue_time_start, issue_date <= issue_time_end),
+       aes(x = valid_time, y = mean_da_forecast, group = issue_date)) +
+  geom_ribbon(data = dplyr::filter(out, issue_date >= issue_time_start, issue_date <= issue_time_end),
+              aes(x = valid_time, ymin = lower_ci, ymax = upper_ci),
+              fill = t_col('lightblue',percent = 60), col = t_col('lightblue',percent = 60)) +
+  geom_line() +
+  theme_minimal() +
+  geom_point(data = dplyr::filter(out, issue_date >= issue_time_start, issue_date <= issue_time_end),
+             aes(x = valid_time, y = obs_temp, color = 'red'))
 
 #lordville site is seg_id_nat == 1573; model_idx = 224; 1574 & 1575 are directly upstream of 1573 and 1577 is directly downstream of 1573
 # cur_model_idxs = '1573'
@@ -385,7 +422,7 @@ RMSE = function(m, o, na.rm = T){
 accuracy_sum = out %>%
   group_by(lead_time) %>%
   summarise(DA = RMSE(mean_da_forecast, obs_temp),
-            #No_DA = RMSE(mean_pred_no_da, obs_temp),
+            No_DA = RMSE(mean_pred_no_da, obs_temp),
             No_DA_persistence = RMSE(persistence, obs_temp)) %>%
   pivot_longer(cols = contains('DA'), names_to = 'forecast_type',values_to = 'rmse')
 windows()
@@ -462,6 +499,11 @@ ggplot(dplyr::filter(accuracy,lead_time %in% c(1,2,3,4)), aes(x = issue_date, y 
   geom_abline(slope = 0, intercept = 0, linetype = 'dashed', size = 2)+
   geom_abline(slope = 1, intercept = 0) + geom_smooth(se = F, size =2)
 
+res_data_sum = res_data %>%
+  group_by(date) %>%
+  summarise(release_volume_cfs = sum(release_volume_cfs)) %>% ungroup() %>%
+  mutate(date = lubridate::as_datetime(date))
+
 ggplot(dplyr::filter(accuracy,lead_time %in% c(0,1,2,3)), aes(x = valid_time, y = mean_da_forecast, color = lead_time, group = lead_time))+
   geom_line() +
   geom_point(data = dplyr::filter(accuracy,lead_time %in% c(0,1,2,3)), aes(x = valid_time, y = obs_temp))+
@@ -472,3 +514,32 @@ ggplot(dplyr::filter(accuracy,lead_time %in% c(0,1,2,3)), aes(x = valid_time, y 
   xlab('Date') +
   ylab('Water temperature (C)')
 
+# zoomed in
+ggplot(dplyr::filter(accuracy,lead_time %in% c(0,1,2,3), issue_date > as.Date('2014-09-01'), issue_date < as.Date('2014-10-20')), aes(x = valid_time, y = mean_da_forecast, color = lead_time, group = lead_time))+
+  geom_line() +
+  geom_point(data = dplyr::filter(accuracy,lead_time %in% c(0,1,2,3), issue_date > as.Date('2014-09-01'), issue_date < as.Date('2014-10-20')), aes(x = valid_time, y = obs_temp))+
+  geom_line(data = dplyr::filter(accuracy, lead_time %in% c(0,1,2,3), issue_date > as.Date('2014-09-01'), issue_date < as.Date('2014-10-20')), aes(x = valid_time, y = mean_pred_no_da), color = 'red') +
+  theme_minimal() +
+  theme(axis.text = element_text(size =14),
+        axis.title = element_text(size = 16))+
+  xlab('Date') +
+  ylab('Water temperature (C)')
+
+ggplot(dplyr::filter(res_data_sum, date > as.Date('2000-06-03'), date < as.Date('2015-06-02')),
+       aes(x= date, y = release_volume_cfs)) +
+  geom_line(size =2) +
+  theme_minimal() +
+  theme(axis.text = element_text(size =14),
+        axis.title = element_text(size = 16))+
+  xlab('Date') +
+  ylab('Reservoir Release (cms)')
+
+accuracy = left_join(accuracy, res_data_sum, by = c('valid_time' = 'date'))
+
+ggplot(dplyr::filter(accuracy, lead_time == 1), aes(x = release_volume_cfs, y = rmse_improve))+
+  geom_point(size = 2) +
+  theme_minimal() +
+  theme(axis.text = element_text(size =14),
+        axis.title = element_text(size = 16))+
+  ylab('No DA error - DA error (C)') +
+  xlab('Reservoir Release (cms)') + geom_abline(slope = 0, intercept =  0, linetype = 'dashed' , size = 1.5, color = 'grey')

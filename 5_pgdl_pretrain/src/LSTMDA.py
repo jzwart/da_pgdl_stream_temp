@@ -2,12 +2,13 @@ import tensorflow as tf
 
 
 class LSTMDA(tf.keras.Model):
-    def __init__(self, hidden_size=1):
+    def __init__(self, hidden_size=1, dropout =0.):
         super().__init__()
         self.rnn_layer = tf.keras.layers.LSTM(hidden_size,
                                               return_sequences=True,
                                               stateful=True,
-                                              return_state=True)
+                                              return_state=True,
+                                              dropout=dropout)
         self.out_layer = tf.keras.layers.Dense(1)
 
     def call(self, inputs, **kwargs):

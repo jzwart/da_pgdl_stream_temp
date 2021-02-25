@@ -41,6 +41,8 @@ def train_model(model_type,
                 learn_rate_fine, 
                 n_epochs_pre, 
                 n_epochs_fine,
+                mc_dropout,
+                mc_dropout_rate,
                 weights_dir,
                 out_h_file, 
                 out_c_file,
@@ -73,7 +75,10 @@ def train_model(model_type,
     if pre_train:
         if model_type == 'lstm': 
             n_batch, seq_len, n_feat = x_trn.shape
-            pretrain_model = LSTMDA(hidden_units)
+            if mc_dropout: 
+                pretrain_model = LSTMDA(hidden_units, mc_dropout_rate)
+            else: 
+                pretrain_model = LSTMDA(hidden_units)
             pretrain_model(x_trn)
         
             pretrain_model.compile(loss=rmse_masked, optimizer=tf.keras.optimizers.Adam(learning_rate=tf.Variable(learn_rate_pre)))
@@ -147,7 +152,10 @@ def train_model(model_type,
         
         if model_type == 'lstm': 
             n_batch, seq_len, n_feat = x_trn.shape
-            fine_tune_model = LSTMDA(hidden_units) 
+            if mc_dropout:
+                fine_tune_model = LSTMDA(hidden_units, mc_dropout_rate)
+            else: 
+                fine_tune_model = LSTMDA(hidden_units)
             fine_tune_model.load_weights(weights_dir).expect_partial()
             fine_tune_model(x_trn) 
             

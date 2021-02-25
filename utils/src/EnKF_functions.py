@@ -559,6 +559,8 @@ def get_EnKF_matrices(
 
 
 def get_da_objects(model_type,
+                   mc_dropout,
+                   mc_dropout_rate,
                    obs_array,
                    x_pred_f,
                    temp_obs_sd,
@@ -621,6 +623,8 @@ def get_da_objects(model_type,
                                           f_horizon)
         
         forecast_model_list, forecast_pred_array = make_forecast_models(model_type,
+                                                                        mc_dropout,
+                                                                        mc_dropout_rate,
                                                                         n_step,
                                                    hidden_units,
                                                    weights_dir,
@@ -634,6 +638,8 @@ def get_da_objects(model_type,
                     
 
 def predict_and_forecast(model_type,
+                         mc_dropout, 
+                         mc_dropout_rate,
                          out_h_file,
                          out_c_file,
                          da_h_file,
@@ -686,7 +692,10 @@ def predict_and_forecast(model_type,
         h = np.load(out_h_file, allow_pickle=True)
         c = np.load(out_c_file, allow_pickle=True)
         
-        model_da = LSTMDA(hidden_units) # model that will make predictions only one day into future 
+        if mc_dropout: 
+            model_da = LSTMDA(hidden_units, mc_dropout_rate) # model that will make predictions only one day into future 
+        else: 
+            model_da = LSTMDA(hidden_units)
     elif model_type == 'rgcn':
         # load LSTM states from trained model 
         h = np.load(out_h_file, allow_pickle=True)
@@ -704,7 +713,11 @@ def predict_and_forecast(model_type,
         # initialize the states with the previously trained states 
         model_da.rnn_layer.reset_states(states=[h, c])
         # make predictions and store states for updating with EnKF 
-        da_preds = model_da.predict(da_drivers, batch_size = n_en * n_segs) # make this dynamic batch size based on n_en
+        if mc_dropout:
+            da_preds = model_da(da_drivers, batch_size = n_en * n_segs, training = True) 
+        else:
+            da_preds = model_da(da_drivers, batch_size = n_en * n_segs) 
+        da_preds = da_preds.numpy() 
         da_h, da_c = model_da.rnn_layer.states
     elif model_type == 'rgcn':
         da_preds = model_da(da_drivers, h_init = h, c_init = c)
@@ -751,12 +764,16 @@ def predict_and_forecast(model_type,
                     scaled_forecast_water = (Y_forecasts[0:n_segs,0,tt-1,:].reshape(n_en*n_segs) - obs_mean) / (obs_std + 1e-10)
                     forecast_pred_array[:,cur_t,0,ar1_temp_pos] = np.mean(scaled_forecast_water)
             forecast_drivers = forecast_pred_array[:,cur_t,0,:].reshape((x_pred_f.shape[0], 1, x_pred_f.shape[2]))
-            forecast_preds = cur_model.predict(forecast_drivers, batch_size = n_en * n_segs)
+            if mc_dropout:
+                forecast_preds = cur_model(forecast_drivers, batch_size = n_en * n_segs, training = True) 
+            else:
+                forecast_preds = cur_model(forecast_drivers, batch_size = n_en * n_segs) 
             # cur_forecast = get_forecast_preds(preds = forecast_preds,
             #                                   n_segs = n_segs,
             #                                   n_states_obs = n_states_obs, 
             #                                   n_en = n_en,
             #                                   f_horizon = f_horizon)
+            forecast_preds = forecast_preds.numpy() 
             Y_forecasts[:,0,tt,:] = forecast_preds[:,0,:].reshape((n_segs,n_en)) #cur_forecast
             Y_forecasts = add_process_error_forecast(Y = Y_forecasts, 
                                                       Q = Q,
@@ -769,13 +786,20 @@ def predict_and_forecast(model_type,
                 Y_forecasts[0:n_segs,0,tt,:] = np.where(Y_forecasts[0:n_segs,0,tt,:]<0,0,Y_forecasts[0:n_segs,0,tt,:])
     
     if store_raw_states: # need to create another model because using the same model messes with state predictions after running through prediction time series 
-        model_raw_states = LSTMDA(hidden_units)
+        if mc_dropout: 
+            model_raw_states = LSTMDA(hidden_units, mc_dropout_rate)
+        else:
+            model_raw_states = LSTMDA(hidden_units)
         model_raw_states.load_weights(weights_dir).expect_partial()
         model_raw_states.rnn_layer.build(input_shape=da_shape)
         # initialize the states with the previously trained states 
         model_raw_states.rnn_layer.reset_states(states=[h, c])
         # make predictions and store states for updating with EnKF 
-        raw_states_preds = model_raw_states.predict(da_drivers, batch_size = n_en * n_segs) # make this dynamic batch size based on n_en
+        if mc_dropout: 
+            raw_states_preds = model_raw_states(da_drivers, batch_size = n_en * n_segs, training = True) 
+        else: 
+            raw_states_preds = model_raw_states(da_drivers, batch_size = n_en * n_segs) 
+        raw_states_preds = raw_states_preds.numpy()
         raw_h, raw_c = model_raw_states.rnn_layer.states
         np.save(raw_h_file, raw_h.numpy())
         np.save(raw_c_file, raw_c.numpy())
@@ -826,7 +850,11 @@ def predict_and_forecast(model_type,
         
             # make predictions  and store states 
             cur_drivers = x_pred[:,t,:].reshape((x_pred.shape[0],1,x_pred.shape[2]))
-            cur_preds = model_raw_states.predict(cur_drivers, batch_size = n_en * n_segs)
+            if mc_dropout: 
+                cur_preds = model_raw_states(cur_drivers, batch_size = n_en * n_segs, training = True) 
+            else: 
+                cur_preds = model_raw_states(cur_drivers, batch_size = n_en * n_segs) 
+            cur_preds = cur_preds.numpy() 
             raw_h, raw_c = model_raw_states.rnn_layer.states
             np.save(raw_h_file, raw_h.numpy())
             np.save(raw_c_file, raw_c.numpy())
@@ -875,7 +903,11 @@ def predict_and_forecast(model_type,
             
         # make predictions  and store states for updating with EnKF 
         cur_drivers = x_pred_da[:,t,:].reshape((x_pred_da.shape[0],1,x_pred_da.shape[2]))
-        cur_preds = model_da.predict(cur_drivers, batch_size = n_en * n_segs)
+        if mc_dropout:
+            cur_preds = model_da(cur_drivers, batch_size = n_en * n_segs, training = True)
+        else:
+            cur_preds = model_da(cur_drivers, batch_size = n_en * n_segs)
+        cur_preds = cur_preds.numpy()
         da_h, da_c = model_da.rnn_layer.states
         np.save(da_h_file, da_h.numpy())
         np.save(da_c_file, da_c.numpy())
@@ -974,7 +1006,11 @@ def predict_and_forecast(model_type,
                         scaled_forecast_water = (Y_forecasts[0:n_segs,t,tt-1,:].reshape(n_en*n_segs) - obs_mean) / (obs_std + 1e-10)
                         forecast_pred_array[:,cur_t,t,ar1_temp_pos] = np.mean(scaled_forecast_water)
                 forecast_drivers = forecast_pred_array[:,cur_t,t,:].reshape((x_pred_f.shape[0], 1, x_pred_f.shape[2]))
-                forecast_preds = cur_model.predict(forecast_drivers, batch_size = n_en * n_segs)
+                if mc_dropout: 
+                    forecast_preds = cur_model(forecast_drivers, batch_size = n_en * n_segs, training = True)
+                else:
+                    forecast_preds = cur_model(forecast_drivers, batch_size = n_en * n_segs)
+                forecast_preds = forecast_preds.numpy()
                 # cur_forecast = get_forecast_preds(preds = forecast_preds,
                 #                                   n_segs = n_segs,
                 #                                   n_states_obs = n_states_obs, 
@@ -1049,6 +1085,8 @@ def forecast(
     return Y_forecasts 
     
 def make_forecast_models(model_type,
+                         mc_dropout,
+                         mc_dropout_rate,
                          n_step,
                          hidden_units,
                          weights_dir,
@@ -1062,7 +1100,10 @@ def make_forecast_models(model_type,
     all_preds = np.repeat(x_pred,n_step,axis=1).reshape(x_pred.shape[0],x_pred.shape[1],n_step,x_pred.shape[2])
     for i in range(n_step):
         if model_type == 'lstm':
-            cur_model = LSTMDA(hidden_units)  
+            if mc_dropout:
+                cur_model = LSTMDA(hidden_units, mc_dropout_rate)
+            else:
+                cur_model = LSTMDA(hidden_units)
             cur_model.load_weights(weights_dir).expect_partial()
             cur_model.rnn_layer.build(input_shape=forecast_shape) 
         elif model_type == 'rgcn': 
