@@ -16,14 +16,14 @@ from dl_da_iteration_ar1 import dl_da_iter
 
 model_type = 'lstm' # options are rgcn, lstm 
 train_dir = '5_pgdl_pretrain/out'
-pre_train = True # T/F if to pre-train with SNTemp output 
-fine_tune = True # T/F if to do fine-tune training on temeprature observations 
+pre_train = False # T/F if to pre-train with SNTemp output 
+fine_tune = False # T/F if to do fine-tune training on temeprature observations 
 fine_tune_iter = False 
 process_error = True # T/F add process error during DA step 
 store_raw_states = True # T/F store the LSTM states without data assimilation 
 store_forecasts = True # T/F store predictions that are in the future 
-force_pos = True # T/F force estimates to be positive 
-update_h_c = True # T/F update h and c states with DA 
+force_pos = False # T/F force estimates to be positive; seems like forcing positive is detrimental to accuracy  
+update_h_c = False # T/F update h and c states with DA 
 ar1_temp = False # T/F include yesterday's water temp as driver 
 ar1_up_temp = False # T/F include yesterday's upstream temperature as a driver 
 mc_dropout = False # T/F to include monte carlo dropout estimates 

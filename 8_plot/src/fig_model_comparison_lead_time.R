@@ -6,16 +6,16 @@ library(reticulate)
 library(verification) # for CRPS calculation
 np = import('numpy')
 
-seg_id = 1573 # Lordville is 1573; 2046 is a relatively low-impacted segment in the Christina watershed
+seg_id = 2046 # Lordville is 1573; 2046 is a relatively low-impacted segment in the Christina watershed
 
 d_no_ar1_hc = np$load(sprintf('5_pgdl_pretrain/out/lstm_da_segid[%s]_250epoch_0.5beta_0.9alpha_Truehc_FalseAR1_6HiddenUnits_FalseMCdropout.npz', seg_id))
 d_ar1_hc = np$load(sprintf('5_pgdl_pretrain/out/lstm_da_segid[%s]_250epoch_0.5beta_0.9alpha_Truehc_TrueAR1_6HiddenUnits_FalseMCdropout.npz', seg_id))
 d_no_ar1_no_hc = np$load(sprintf('5_pgdl_pretrain/out/lstm_da_segid[%s]_250epoch_0.5beta_0.9alpha_Falsehc_FalseAR1_6HiddenUnits_FalseMCdropout.npz', seg_id))
 d_ar1_no_hc = np$load(sprintf('5_pgdl_pretrain/out/lstm_da_segid[%s]_250epoch_0.5beta_0.9alpha_Falsehc_TrueAR1_6HiddenUnits_FalseMCdropout.npz', seg_id))
 
-res_data = read.csv('3_observations/in/reservoir_releases_lordville.csv', stringsAsFactors = F) %>%
-  as_tibble() %>%
-  mutate(date = as.Date(date))
+# res_data = read.csv('3_observations/in/reservoir_releases_lordville.csv', stringsAsFactors = F) %>%
+#   as_tibble() %>%
+#   mutate(date = as.Date(date))
 
 n_en = dim(d_ar1_hc$f['Y'])[3]
 dates = d_ar1_hc$f[['dates']]
@@ -115,7 +115,7 @@ ggplot(filter(accuracy_sum, lead_time >0), aes(x = lead_time, y = rmse, group = 
         axis.title = element_text(size = 16))+
   xlab('Lead Time (days)') +
   ylab('RMSE (C)') +
-  # ylim(c(0.5,.75)) +
+  ylim(c(0.5,.75)) +
   scale_color_discrete(name = "Model Type",
                       labels = c("DL + AR1",'DL-DA + AR1', 'DL-DA', "DL", "Persistence"))
 
