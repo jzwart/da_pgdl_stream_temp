@@ -23,8 +23,8 @@ process_error = True # T/F add process error during DA step
 store_raw_states = True # T/F store the LSTM states without data assimilation 
 store_forecasts = True # T/F store predictions that are in the future 
 force_pos = True # T/F force estimates to be positive 
-update_h_c = False # T/F update h and c states with DA 
-ar1_temp = True # T/F include yesterday's water temp as driver 
+update_h_c = True # T/F update h and c states with DA 
+ar1_temp = False # T/F include yesterday's water temp as driver 
 ar1_up_temp = False # T/F include yesterday's upstream temperature as a driver 
 mc_dropout = False # T/F to include monte carlo dropout estimates 
 mc_dropout_rate = 0.5 # rate for monte carlo dropout 
@@ -51,6 +51,11 @@ tf.random.set_seed(seed)
 np.random.seed(seed)
 random.seed(seed)
 
+seg_ids = [1573] # needs to be a list of seg_ids (even if one segment)
+# less-impacted segments - 2046, 2037
+# lordville segment - 1573 
+n_segs = len(seg_ids)
+
 n_en = 50
 learn_rate_pre = 0.05
 learn_rate_fine = 0.05
@@ -58,9 +63,9 @@ n_epochs_pre = 30# number of epochs for pretraining
 n_epochs_fine = 250 # number of epochs for finetuning 
 hidden_units = 6 # number of hidden units 
 cycles = 10 # number of cycles for DA-DL routine 
-weights_dir = '5_pgdl_pretrain/out/lstm_da_trained_wgts/'
-out_h_file = '5_pgdl_pretrain/out/h.npy' 
-out_c_file = '5_pgdl_pretrain/out/c.npy' 
+weights_dir = '5_pgdl_pretrain/out/segid%s_%sar1_lstm_da_trained_wgts/' % (seg_ids, ar1_temp)
+out_h_file = '5_pgdl_pretrain/out/segid%s_%sar1_h.npy' % (seg_ids, ar1_temp)
+out_c_file = '5_pgdl_pretrain/out/segid%s_%sar1_c.npy' % (seg_ids, ar1_temp) 
 da_h_file = '5_pgdl_pretrain/out/h_da.npy'
 da_c_file = '5_pgdl_pretrain/out/c_da.npy'
 raw_h_file = '5_pgdl_pretrain/out/h_raw.npy'
@@ -70,17 +75,13 @@ forecast_c_file = '5_pgdl_pretrain/out/c_forecast.npy'
 data_file = "5_pgdl_pretrain/in/lstm_da_data.npz"
 obs_temp_file = "5_pgdl_pretrain/in/obs_temp_full"
 driver_file = "5_pgdl_pretrain/in/uncal_sntemp_input_output"
-start_date_trn = "1995-05-01"
+start_date_trn = "1985-05-01"
 end_date_trn = "2014-06-01"
 start_date_pred = "2014-06-02"
 end_date_pred = "2015-06-02"
 dist_mat_file = "1_model_fabric/in/distance_matrix.npz"
 dist_mat_direction = 'downstream' # which direction to go for distance matrix 
 
-seg_ids = [1573] # needs to be a list of seg_ids (even if one segment)
-# less-impacted segments - 2046, 2037
-# lordville segment - 1573 
-n_segs = len(seg_ids)
 
 x_vars = ["seg_tave_air", "seginc_swrad", "seg_rain", "seg_humid", "seg_slope","seg_length","seg_elev"]
 y_vars=["seg_tave_water"]

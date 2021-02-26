@@ -17,7 +17,7 @@ res_data = read.csv('3_observations/in/reservoir_releases_lordville.csv', string
   as_tibble() %>%
   mutate(date = as.Date(date))
 
-n_en = dim(Y_ar1_hc)[3]
+n_en = dim(d_ar1_hc$f['Y'])[3]
 dates = d_ar1_hc$f[['dates']]
 n_step = length(dates)
 cur_model_idxs = d_ar1_hc$f[['model_locations']]
