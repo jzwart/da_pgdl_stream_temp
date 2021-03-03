@@ -118,7 +118,7 @@ class GraphConvLayer(tf.keras.layers.Layer):
 
 
 class RGCN(tf.keras.Model):
-    def __init__(self, hidden_size, A):
+    def __init__(self, hidden_size, A, dropout =0.):
         """
 
         :param hidden_size: [int] the number of hidden units
@@ -127,7 +127,11 @@ class RGCN(tf.keras.Model):
         super().__init__()
         self.hidden_size = hidden_size
         self.rnn_layer = tf.keras.layers.LSTM(
-            hidden_size, return_sequences=True, stateful=True, return_state=True
+            hidden_size, 
+            return_sequences=True, 
+            stateful=True,
+            return_state=True,
+            dropout=dropout
         )
 
         self.graph_conv_layer = GraphConvLayer(A=A.astype("float32"),

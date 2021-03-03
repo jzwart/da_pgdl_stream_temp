@@ -90,8 +90,12 @@ def train_model(model_type,
             np.save(out_c_file, c.numpy())
         elif model_type == 'rgcn':
             n_batch, seq_len, n_feat = x_trn.shape
-            pretrain_model = RGCN(hidden_units, dist_mat)
+            if mc_dropout: 
+                pretrain_model = RGCN(hidden_units, dist_mat, mc_dropout_rate)
+            else:
+                pretrain_model = RGCN(hidden_units, dist_mat)
             pretrain_model.rnn_layer.build(input_shape=x_trn.shape)
+            
             pretrain_model.compile(loss=rmse_masked, optimizer=tf.keras.optimizers.Adam(learning_rate=tf.Variable(learn_rate_pre)), run_eagerly=True) # need the run eagerly to get out the states (might make this run slower so we should think about not doing this and instead trianing & then predicting on entire train input data to get out states from last time step)
             pretrain_model.fit(x=x_trn, y=y_trn, epochs=n_epochs_pre, batch_size=n_batch)
             
@@ -171,7 +175,11 @@ def train_model(model_type,
     
         elif model_type == 'rgcn':
             n_batch, seq_len, n_feat = x_trn.shape
-            fine_tune_model = RGCN(hidden_units, dist_mat)
+            if mc_dropout: 
+                fine_tune_model = RGCN(hidden_units, dist_mat, mc_dropout_rate)
+            else:
+                fine_tune_model = RGCN(hidden_units, dist_mat)
+                
             fine_tune_model.load_weights(weights_dir).expect_partial()
             fine_tune_model(x_trn) 
             

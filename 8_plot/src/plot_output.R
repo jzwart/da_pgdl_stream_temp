@@ -6,7 +6,7 @@ library(reticulate)
 library(verification) # for CRPS calculation
 np = import('numpy')
 
-d = np$load('5_pgdl_pretrain/out/lstm_da_segid[2046]_250epoch_0.5beta_0.9alpha_Truehc_FalseAR1_6HiddenUnits_FalseMCdropout.npz')
+d = np$load('5_pgdl_pretrain/out/rgcn_da_segid[1573, 1577]_250epoch_0.5beta_0.9alpha_Truehc_FalseAR1_20HiddenUnits_FalseMCdropout.npz')
 res_data = read.csv('3_observations/in/reservoir_releases_lordville.csv', stringsAsFactors = F) %>%
   as_tibble() %>%
   mutate(date = as.Date(date))

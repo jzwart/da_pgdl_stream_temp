@@ -16,14 +16,14 @@ from dl_da_iteration_ar1 import dl_da_iter
 
 model_type = 'lstm' # options are rgcn, lstm 
 train_dir = '5_pgdl_pretrain/out'
-pre_train = False # T/F if to pre-train with SNTemp output 
-fine_tune = False # T/F if to do fine-tune training on temeprature observations 
+pre_train = True # T/F if to pre-train with SNTemp output 
+fine_tune = True # T/F if to do fine-tune training on temeprature observations 
 fine_tune_iter = False 
 process_error = True # T/F add process error during DA step 
 store_raw_states = True # T/F store the LSTM states without data assimilation 
 store_forecasts = True # T/F store predictions that are in the future 
 force_pos = False # T/F force estimates to be positive; seems like forcing positive is detrimental to accuracy  
-update_h_c = False # T/F update h and c states with DA 
+update_h_c = True # T/F update h and c states with DA 
 ar1_temp = False # T/F include yesterday's water temp as driver 
 ar1_up_temp = False # T/F include yesterday's upstream temperature as a driver 
 mc_dropout = False # T/F to include monte carlo dropout estimates 
@@ -56,23 +56,23 @@ seg_ids = [1573] # needs to be a list of seg_ids (even if one segment)
 # lordville segment - 1573 
 n_segs = len(seg_ids)
 
-n_en = 50
+n_en = 100
 learn_rate_pre = 0.05
 learn_rate_fine = 0.05
 n_epochs_pre = 30# number of epochs for pretraining 
 n_epochs_fine = 250 # number of epochs for finetuning 
-hidden_units = 6 # number of hidden units 
+hidden_units = 20 # number of hidden units 
 cycles = 10 # number of cycles for DA-DL routine 
-weights_dir = '5_pgdl_pretrain/out/segid%s_%sar1_lstm_da_trained_wgts/' % (seg_ids, ar1_temp)
-out_h_file = '5_pgdl_pretrain/out/segid%s_%sar1_h.npy' % (seg_ids, ar1_temp)
-out_c_file = '5_pgdl_pretrain/out/segid%s_%sar1_c.npy' % (seg_ids, ar1_temp) 
+weights_dir = '5_pgdl_pretrain/out/segid%s_%sar1_%s_da_trained_wgts/' % (seg_ids, ar1_temp, model_type)
+out_h_file = '5_pgdl_pretrain/out/segid%s_%sar1_%s_h.npy' % (seg_ids, ar1_temp, model_type)
+out_c_file = '5_pgdl_pretrain/out/segid%s_%sar1_%s_c.npy' % (seg_ids, ar1_temp, model_type) 
 da_h_file = '5_pgdl_pretrain/out/h_da.npy'
 da_c_file = '5_pgdl_pretrain/out/c_da.npy'
 raw_h_file = '5_pgdl_pretrain/out/h_raw.npy'
 raw_c_file = '5_pgdl_pretrain/out/c_raw.npy'
 forecast_h_file = '5_pgdl_pretrain/out/h_forecast.npy'
 forecast_c_file = '5_pgdl_pretrain/out/c_forecast.npy'
-data_file = "5_pgdl_pretrain/in/lstm_da_data.npz"
+data_file = "5_pgdl_pretrain/in/lstm_da_%s_data.npz" % (seg_ids)  
 obs_temp_file = "5_pgdl_pretrain/in/obs_temp_full"
 driver_file = "5_pgdl_pretrain/in/uncal_sntemp_input_output"
 start_date_trn = "1985-05-01"
