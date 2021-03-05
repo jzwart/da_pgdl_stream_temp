@@ -6,7 +6,7 @@ library(reticulate)
 library(verification) # for CRPS calculation
 np = import('numpy')
 
-d = np$load('5_pgdl_pretrain/out/rgcn_da_segid[1573, 1577]_250epoch_0.5beta_0.9alpha_Truehc_FalseAR1_20HiddenUnits_FalseMCdropout.npz')
+d = np$load('5_pgdl_pretrain/out/lstm_da_segid[2046]_50epoch_0.5beta_0.9alpha_Truehc_TrueAR1_10HiddenUnits_FalseMCdropout.npz')
 res_data = read.csv('3_observations/in/reservoir_releases_lordville.csv', stringsAsFactors = F) %>%
   as_tibble() %>%
   mutate(date = as.Date(date))
@@ -93,7 +93,7 @@ for(i in 1:n_step){
 
 # plot forecasts
 #Y_forecast[,,1,] = Y[1:n_segs,,]
-issue_times = 101:111
+issue_times = 151:161
 for(j in cur_model_idxs){
   # obs[,1,1]
   matrix_loc = which(cur_model_idxs == j)
@@ -124,6 +124,9 @@ for(j in cur_model_idxs){
   points(obs[matrix_loc,1,valid_times] ~ dates[valid_times], col = 'red', pch = 16, cex = 1.2)
   arrows(dates[valid_times], obs[matrix_loc,1,valid_times]+R[matrix_loc,matrix_loc,valid_times], dates[valid_times], obs[matrix_loc,1,valid_times]-R[matrix_loc,matrix_loc,valid_times],
          angle = 90, length = .05, col = 'red', code = 3)
+  for(i in 1:n_en){
+    lines(Y_no_da[matrix_loc,valid_times,i] ~ dates[valid_times], col = alpha('blue', .5))
+  }
   lines(mean_pred_no_da[valid_times] ~ dates[valid_times], lwd =5 ,col = alpha('blue',.5))
   # lines(mean_pred_da[issue_times] ~ dates[issue_times], lwd =2 , lty = 2, col = alpha('green',.9))
 }
@@ -433,7 +436,8 @@ ggplot(accuracy_sum, aes(x = lead_time, y = rmse, group = forecast_type, color =
   theme(axis.text = element_text(size =14),
         axis.title = element_text(size = 16))+
   xlab('Lead Time (days)') +
-  ylab('RMSE (C)')
+  ylab('RMSE (C)')+
+  ylim(c(0.5,.7))
 
 #plot((accuracy$rmse_no_da-accuracy$rmse_da) ~ accuracy$lead_time, type = 'l', lwd=3,
 #    ylim = c(0, max(accuracy$rmse_no_da-accuracy$rmse_da)))

@@ -3,12 +3,12 @@ import numpy as np
 import tensorflow as tf
 import sys
 sys.path.insert(1, '5_pgdl_pretrain/src')
-from LSTMDA import *
-from prep_da_lstm_data import * 
+from LSTMDA import LSTMDA, rmse_masked
 sys.path.insert(1, 'utils/src')
 from EnKF_functions import * 
 
 def dl_da_iter(
+        model_type, 
         cycles,
         weights_dir,
         out_h_file,
@@ -29,14 +29,16 @@ def dl_da_iter(
         obs_mean,
         obs_std,
         force_pos,
-        dates,
+        dates_trn,
         update_h_c,
         ar1_temp,
         ar1_temp_pos,
         h_sd,
         c_sd,
         hidden_units,
-        n_segs):
+        n_segs,
+        mc_dropout, 
+        mc_dropout_rate):
     
     obs_array = obs_trn 
     tmp_1, n_step, tmp = obs_array.shape
@@ -69,20 +71,49 @@ def dl_da_iter(
 
     for i in range(0, cycles):
         # initialize the states with the previously trained states 
-        # load LSTM states from trained model 
-        h = np.load(out_h_file, allow_pickle=True)
-        c = np.load(out_c_file, allow_pickle=True)
-        
-        model_da = LSTMDA(hidden_units) # model that will make predictions only one day into future 
-        model_da.load_weights(weights_dir).expect_partial() 
+        if model_type == 'lstm':
+            # load LSTM states from trained model 
+            h = np.load(out_h_file, allow_pickle=True)
+            c = np.load(out_c_file, allow_pickle=True)
+            
+            if mc_dropout: 
+                model_da = LSTMDA(hidden_units, mc_dropout_rate) # model that will make predictions only one day into future 
+            else: 
+                model_da = LSTMDA(hidden_units)
+        elif model_type == 'rgcn':
+            h = np.load(out_h_file, allow_pickle=True)
+            c = np.load(out_c_file, allow_pickle=True)
+            h = h[:,-1,:] # need to get last h & c states since RGCN saves every timestep from training period 
+            c = c[:,-1,:] 
+    
+            if mc_dropout:
+                model_da = RGCN(hidden_units, dist_mat, mc_dropout_rate) # model that will make predictions only one day into future 
+            else: 
+                model_da = RGCN(hidden_units, dist_mat) 
+        model_da.load_weights(weights_dir).expect_partial()
         da_drivers = x_trn[:,0,:].reshape((x_trn.shape[0],1,x_trn.shape[2])) # only single timestep for DA model
         da_shape = (n_en * len(model_locations), da_drivers.shape[1], da_drivers.shape[2])
         model_da.rnn_layer.build(input_shape=da_shape)
         
-        model_da.rnn_layer.reset_states(states=[h, c])
-        # make predictions and store states for updating with EnKF 
-        da_preds = model_da.predict(da_drivers, batch_size = n_en * n_segs) 
-        cur_h, cur_c = model_da.rnn_layer.states 
+        if model_type == 'lstm':
+            # initialize the states with the previously trained states 
+            model_da.rnn_layer.reset_states(states=[h, c])
+            # make predictions and store states for updating with EnKF 
+            if mc_dropout:
+                da_preds = model_da(da_drivers, batch_size = n_en * n_segs, training = True) 
+            else:
+                da_preds = model_da(da_drivers, batch_size = n_en * n_segs) 
+            da_preds = da_preds.numpy() 
+            cur_h, cur_c = model_da.rnn_layer.states
+        elif model_type == 'rgcn':
+            if mc_dropout:
+                da_preds = model_da(da_drivers, h_init = h, c_init = c, training = True)
+            else: 
+                da_preds = model_da(da_drivers, h_init = h, c_init = c)
+            da_preds = da_preds.numpy() 
+            cur_h = model_da.h_gr
+            cur_c = model_da.c_gr
+        
         np.save(out_h_file, cur_h.numpy())
         np.save(out_c_file, cur_c.numpy())        
         
@@ -149,7 +180,7 @@ def dl_da_iter(
         
         # loop through forecast time steps and make forecasts & update with EnKF 
         for t in range(1, n_step):
-            print(dates[t])
+            print(dates_trn[t])
             
             cur_h = np.load(out_h_file, allow_pickle=True)
             cur_c = np.load(out_c_file, allow_pickle=True)
@@ -167,13 +198,27 @@ def dl_da_iter(
                         n_en = n_en,
                         hidden_units = hidden_units, 
                         cur_step = t-1)
-            model_da.rnn_layer.reset_states(states=[cur_h, cur_c]) 
-        
-            # make predictions  and store states for updating with EnKF 
+            
             cur_drivers = x_trn[:,t,:].reshape((x_trn.shape[0],1,x_trn.shape[2]))
-            cur_preds = model_da.predict(cur_drivers, batch_size = n_en * n_segs)
-        
-            cur_h, cur_c = model_da.rnn_layer.states 
+            
+            if model_type == 'lstm':
+                model_da.rnn_layer.reset_states(states=[cur_h, cur_c]) 
+                # make predictions  and store states for updating with EnKF 
+                if mc_dropout:
+                    cur_preds = model_da(cur_drivers, batch_size = n_en * n_segs, training = True)
+                else:
+                    cur_preds = model_da(cur_drivers, batch_size = n_en * n_segs)
+                cur_preds = cur_preds.numpy()
+                cur_h, cur_c = model_da.rnn_layer.states
+            elif model_type == 'rgcn': 
+                if mc_dropout:
+                    cur_preds = model_da(cur_drivers, h_init = cur_h, c_init = cur_c, training = True)
+                else: 
+                    cur_preds = model_da(cur_drivers, h_init = cur_h, c_init = cur_c)
+                cur_preds = cur_preds.numpy()
+                cur_h = model_da.h_gr
+                cur_c = model_da.c_gr
+            
             np.save(out_h_file, cur_h.numpy())
             np.save(out_c_file, cur_c.numpy())  
             
@@ -257,13 +302,19 @@ def dl_da_iter(
         #new_y = Y[0:n_segs,:,:] # DA states with which to train weights   
         new_y = np.empty((n_states_obs*n_en, n_step, 1))
         P_diag = np.empty((n_states_obs*n_en, n_step, 1)) # get diagonal of P for weighting in new training of LSTM 
+        P_new = np.empty((P.shape)) # need to get P post-DA 
         for step in range(0, n_step):
             cur_Y = Y[0:n_segs:,step,:]
-            Y_mean = np.repeat(cur_Y.mean(axis = 1),n_en) # calculating mean of state / param estimates 
+            Y_mean = np.repeat(cur_Y.mean(axis = 1),n_en)  
+            d_new = get_ens_deviate(Y = Y,
+                                    n_en = n_en, 
+                                    cur_step = step)
+            P_new[:,:,step] = get_covar(deviations = d_new,
+                                        n_en = n_en)
             temp_minus1_mean = np.repeat(np.mean(x_trn[:,step,ar1_temp_pos].reshape((n_segs,n_en)), axis=1),n_en)
             x_trn[:,step,ar1_temp_pos] = temp_minus1_mean
             new_y[:,step,0] = Y_mean
-            P_diag[:,step, 0] = np.repeat(np.diag(P[0:n_segs,0:n_segs,step]), n_en)
+            P_diag[:,step, 0] = np.repeat(np.diag(P_new[0:n_segs,0:n_segs,step]), n_en)
         #new_y = np.moveaxis(new_y, 2, 0)
         #new_y = np.moveaxis(new_y, 1, 2)
         P_diag_inv = 1/P_diag  # inverse of P are the weights 
@@ -274,15 +325,25 @@ def dl_da_iter(
         # need to concatonate weights onto y_true when using weighted rmse
         new_y_cat = np.concatenate([new_y, P_diag_inv], axis = 2)
     
-        cur_lstm = LSTMDA(hidden_units)
-        cur_lstm.rnn_layer.build(input_shape=x_trn.shape)
-        cur_lstm.compile(loss=rmse_weighted, optimizer=tf.optimizers.Adam(learning_rate=learn_rate_fine))
-        cur_lstm.load_weights(weights_dir)
-    
-        cur_lstm.fit(x=x_trn, y=new_y_cat, epochs=n_epochs_fine, batch_size=n_batch)
+        if model_type == 'lstm':
+            if mc_dropout: 
+                cur_model = LSTMDA(hidden_units, mc_dropout_rate) # model that will make predictions only one day into future 
+            else: 
+                cur_model = LSTMDA(hidden_units)
+        elif model_type == 'rgcn':
+            if mc_dropout:
+                cur_model = RGCN(hidden_units, dist_mat, mc_dropout_rate) # model that will make predictions only one day into future 
+            else: 
+                cur_model = RGCN(hidden_units, dist_mat) 
+
+        cur_model.load_weights(weights_dir).expect_partial()
+        cur_model.rnn_layer.build(input_shape=x_trn.shape)
+        cur_model.compile(loss=rmse_weighted, optimizer=tf.keras.optimizers.Adam(learning_rate=tf.Variable(learn_rate_fine)))
+       
+        cur_model.fit(x=x_trn, y=new_y_cat, epochs=n_epochs_fine, batch_size=n_batch)
         
-        cur_lstm.save_weights(weights_dir)
-        h, c = cur_lstm.rnn_layer.states
+        cur_model.save_weights(weights_dir)
+        h, c = cur_model.rnn_layer.states
         np.save(out_h_file, h.numpy())
         np.save(out_c_file, c.numpy())
 

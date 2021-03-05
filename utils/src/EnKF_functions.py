@@ -731,6 +731,7 @@ def predict_and_forecast(model_type,
         
     np.save(da_h_file, da_h.numpy())
     np.save(da_c_file, da_c.numpy())
+    
     if update_h_c:
         cur_states = combine_lstm_states(
                 preds = da_preds[:,0,:], 
