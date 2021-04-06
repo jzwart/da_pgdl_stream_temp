@@ -18,15 +18,15 @@ model_type = 'lstm' # options are rgcn, lstm
 train_dir = '5_pgdl_pretrain/out'
 pre_train = True # T/F if to pre-train with SNTemp output 
 fine_tune = False # T/F if to do fine-tune training on temeprature observations 
-fine_tune_iter = True 
+fine_tune_iter = False  
 process_error = True # T/F add process error during DA step 
 store_raw_states = True # T/F store the LSTM states without data assimilation 
 store_forecasts = True # T/F store predictions that are in the future 
 force_pos = False # T/F force estimates to be positive; seems like forcing positive is detrimental to accuracy  
-update_h_c = True # T/F update h and c states with DA 
-ar1_temp = True # T/F include yesterday's water temp as driver 
+update_h_c = False # T/F update h and c states with DA 
+ar1_temp = False # T/F include yesterday's water temp as driver 
 ar1_up_temp = False # T/F include yesterday's upstream temperature as a driver 
-mc_dropout = False # T/F to include monte carlo dropout estimates 
+mc_dropout = True # T/F to include monte carlo dropout estimates 
 mc_dropout_rate = 0.4 # rate for monte carlo dropout 
 f_horizon = 8 # forecast horizon in days (how many days into the future to make predictions)
 beta = 0.5 # weighting for how much uncertainty should go to observed vs. 
@@ -51,17 +51,17 @@ tf.random.set_seed(seed)
 np.random.seed(seed)
 random.seed(seed)
 
-seg_ids = [2046] # needs to be a list of seg_ids (even if one segment)
+seg_ids = [1573]#[2046,2037,2036,2021,2030, 2013] # needs to be a list of seg_ids (even if one segment)
 # less-impacted segments - 2046, 2037
 # lordville segment - 1573 
 n_segs = len(seg_ids)
 
 n_en = 100
-learn_rate_pre = 0.05
+learn_rate_pre = 0.054
 learn_rate_fine = 0.05
 n_epochs_pre = 30# number of epochs for pretraining 
-n_epochs_fine = 50 # number of epochs for finetuning 
-hidden_units = 10 # number of hidden units 
+n_epochs_fine = 150 # number of epochs for finetuning 
+hidden_units = 6 # number of hidden units 
 cycles = 10 # number of cycles for DA-DL routine 
 weights_dir = '5_pgdl_pretrain/out/segid%s_%sar1_%s_da_trained_wgts/' % (seg_ids, ar1_temp, model_type)
 out_h_file = '5_pgdl_pretrain/out/segid%s_%sar1_%s_h.npy' % (seg_ids, ar1_temp, model_type)

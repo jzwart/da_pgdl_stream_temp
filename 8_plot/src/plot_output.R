@@ -6,7 +6,10 @@ library(reticulate)
 library(verification) # for CRPS calculation
 np = import('numpy')
 
-d = np$load('5_pgdl_pretrain/out/lstm_da_segid[2046]_50epoch_0.5beta_0.9alpha_Truehc_TrueAR1_10HiddenUnits_FalseMCdropout.npz')
+# well observed segments - 2013, 2037, 2046
+# with held segments - 2021, 2036, 2030,
+
+d = np$load('5_pgdl_pretrain/out/lstm_da_segid[2046, 2037, 2036, 2021, 2030, 2013]_50epoch_0.5beta_0.9alpha_Truehc_TrueAR1_10HiddenUnits_FalseMCdropout_withHeld.npz')
 res_data = read.csv('3_observations/in/reservoir_releases_lordville.csv', stringsAsFactors = F) %>%
   as_tibble() %>%
   mutate(date = as.Date(date))
@@ -45,6 +48,7 @@ for(j in cur_model_idxs){
 
   temp_rmse = round(sqrt(mean((mean_pred - obs[matrix_loc,1,])^2, na.rm = T)), 2)
   temp_rmse_no_da = round(sqrt(mean((mean_pred_no_da - obs[matrix_loc,1,])^2, na.rm = T)), 2)
+  temp_rmse_withheld = round(sqrt(mean((mean_pred - obs_withheld[matrix_loc,1,])^2, na.rm = T)), 2)
 
   windows(width = 14, height = 10)
   par(mar = c(3,6,4,3), mfrow = c(2,1))
@@ -52,7 +56,7 @@ for(j in cur_model_idxs){
        ylab = 'Stream Temp (C)', xlab = '', lty=0,
        ylim = c(0,25), #ylim =range(c(Y[matrix_loc,,], obs[matrix_loc,1,]), na.rm = T), #, Y_no_assim[matrix_loc,,])
        cex.axis = 2, cex.lab =2, main = sprintf('model idx %s', j))
-  add_text(sprintf('RMSE DA: %s \nRMSE no DA: %s', temp_rmse, temp_rmse_no_da), location = 'bottomleft')
+  add_text(sprintf('RMSE DA: %s \nRMSE no DA: %s \nRMSE DA withheld: %s', temp_rmse, temp_rmse_no_da, temp_rmse_withheld), location = 'left')
 
   for(i in 1:n_en){
     lines(Y_no_da[matrix_loc,,i] ~ dates, col = alpha('blue', .5))
@@ -61,6 +65,10 @@ for(j in cur_model_idxs){
   lines(mean_pred ~ dates, lwd = 2, col = alpha('black', .5))
   lines(mean_pred_no_da ~ dates, lwd = 2, col = alpha('blue', .5))
   # abline(v = dates[30])
+  points(obs_withheld[matrix_loc,1,] ~ dates, col = 'purple', pch = 16, cex = 1.2)
+  arrows(dates, obs_withheld[matrix_loc,1,]+R[matrix_loc,matrix_loc,], dates, obs[matrix_loc,1,]-R[matrix_loc,matrix_loc,],
+         angle = 90, length = .05, col = 'purple', code = 3)
+
   points(obs[matrix_loc,1,] ~ dates, col = 'red', pch = 16, cex = 1.2)
   arrows(dates, obs[matrix_loc,1,]+R[matrix_loc,matrix_loc,], dates, obs[matrix_loc,1,]-R[matrix_loc,matrix_loc,],
          angle = 90, length = .05, col = 'red', code = 3)
@@ -93,7 +101,7 @@ for(i in 1:n_step){
 
 # plot forecasts
 #Y_forecast[,,1,] = Y[1:n_segs,,]
-issue_times = 151:161
+issue_times = 100:111
 for(j in cur_model_idxs){
   # obs[,1,1]
   matrix_loc = which(cur_model_idxs == j)
@@ -436,8 +444,8 @@ ggplot(accuracy_sum, aes(x = lead_time, y = rmse, group = forecast_type, color =
   theme(axis.text = element_text(size =14),
         axis.title = element_text(size = 16))+
   xlab('Lead Time (days)') +
-  ylab('RMSE (C)')+
-  ylim(c(0.5,.7))
+  ylab('RMSE (C)')#+
+  #ylim(c(0.5,.7))
 
 #plot((accuracy$rmse_no_da-accuracy$rmse_da) ~ accuracy$lead_time, type = 'l', lwd=3,
 #    ylim = c(0, max(accuracy$rmse_no_da-accuracy$rmse_da)))

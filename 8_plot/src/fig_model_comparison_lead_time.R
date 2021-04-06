@@ -7,11 +7,13 @@ library(verification) # for CRPS calculation
 np = import('numpy')
 
 seg_id = 2046 # Lordville is 1573; 2046 is a relatively low-impacted segment in the Christina watershed
+epochs = 50
+hidden_units = 10
 
-d_no_ar1_hc = np$load(sprintf('5_pgdl_pretrain/out/lstm_da_segid[%s]_250epoch_0.5beta_0.9alpha_Truehc_FalseAR1_6HiddenUnits_FalseMCdropout.npz', seg_id))
-d_ar1_hc = np$load(sprintf('5_pgdl_pretrain/out/lstm_da_segid[%s]_250epoch_0.5beta_0.9alpha_Truehc_TrueAR1_6HiddenUnits_FalseMCdropout.npz', seg_id))
-d_no_ar1_no_hc = np$load(sprintf('5_pgdl_pretrain/out/lstm_da_segid[%s]_250epoch_0.5beta_0.9alpha_Falsehc_FalseAR1_6HiddenUnits_FalseMCdropout.npz', seg_id))
-d_ar1_no_hc = np$load(sprintf('5_pgdl_pretrain/out/lstm_da_segid[%s]_250epoch_0.5beta_0.9alpha_Falsehc_TrueAR1_6HiddenUnits_FalseMCdropout.npz', seg_id))
+d_no_ar1_hc = np$load(sprintf('5_pgdl_pretrain/out/lstm_da_segid[%s]_%sepoch_0.5beta_0.9alpha_Truehc_FalseAR1_%sHiddenUnits_FalseMCdropout.npz', seg_id,epochs, hidden_units))
+d_ar1_hc = np$load(sprintf('5_pgdl_pretrain/out/lstm_da_segid[%s]_%sepoch_0.5beta_0.9alpha_Truehc_TrueAR1_%sHiddenUnits_FalseMCdropout.npz', seg_id, epochs, hidden_units))
+d_no_ar1_no_hc = np$load(sprintf('5_pgdl_pretrain/out/lstm_da_segid[%s]_%sepoch_0.5beta_0.9alpha_Falsehc_FalseAR1_%sHiddenUnits_FalseMCdropout.npz', seg_id, epochs, hidden_units))
+d_ar1_no_hc = np$load(sprintf('5_pgdl_pretrain/out/lstm_da_segid[%s]_%sepoch_0.5beta_0.9alpha_Falsehc_TrueAR1_%sHiddenUnits_FalseMCdropout.npz', seg_id, epochs, hidden_units))
 
 # res_data = read.csv('3_observations/in/reservoir_releases_lordville.csv', stringsAsFactors = F) %>%
 #   as_tibble() %>%
@@ -51,7 +53,7 @@ for(i in 1:n_step){
 
 
 # what is the RMSE based on lead time?
-issue_times = 1:n_step
+issue_times = 1:(n_step-f_horizon)
 out = crossing(tibble(issue_date = dates[issue_times]), tibble(lead_time = seq(0,f_horizon-1)))
 out = mutate(out,
              valid_time = issue_date + lubridate::days(lead_time),
@@ -115,7 +117,7 @@ ggplot(filter(accuracy_sum, lead_time >0), aes(x = lead_time, y = rmse, group = 
         axis.title = element_text(size = 16))+
   xlab('Lead Time (days)') +
   ylab('RMSE (C)') +
-  ylim(c(0.5,.75)) +
+  ylim(c(0.45,0.82)) +
   scale_color_discrete(name = "Model Type",
                       labels = c("DL + AR1",'DL-DA + AR1', 'DL-DA', "DL", "Persistence"))
 

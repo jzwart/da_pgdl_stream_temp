@@ -311,8 +311,9 @@ def dl_da_iter(
                                     cur_step = step)
             P_new[:,:,step] = get_covar(deviations = d_new,
                                         n_en = n_en)
-            temp_minus1_mean = np.repeat(np.mean(x_trn[:,step,ar1_temp_pos].reshape((n_segs,n_en)), axis=1),n_en)
-            x_trn[:,step,ar1_temp_pos] = temp_minus1_mean
+            if ar1_temp:
+                temp_minus1_mean = np.repeat(np.mean(x_trn[:,step,ar1_temp_pos].reshape((n_segs,n_en)), axis=1),n_en)
+                x_trn[:,step,ar1_temp_pos] = temp_minus1_mean
             new_y[:,step,0] = Y_mean
             P_diag[:,step, 0] = np.repeat(np.diag(P_new[0:n_segs,0:n_segs,step]), n_en)
         #new_y = np.moveaxis(new_y, 2, 0)
