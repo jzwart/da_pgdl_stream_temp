@@ -107,11 +107,13 @@ accuracy_sum = out %>%
             DL_DA_forecast = RMSE(mean_DL_DA_forecast, obs_temp),
             DL_DA_ar1_forecast = RMSE(mean_DL_DA_ar1_forecast, obs_temp),
             persistence_forecast = RMSE(persistence, obs_temp)) %>%
-  pivot_longer(cols = contains('forecast'), names_to = 'forecast_type',values_to = 'rmse') %>% ungroup() %>%
-  mutate(color = case_when(forecast_type == 'persistence_forecast' ~ 'orange',
-                           forecast_type == 'DL_forecast' ~ 'purple',
-                           forecast_type == 'DL_DA_ar1_forecast' ~ 'darkgreen'))
-windows()
+  pivot_longer(cols = contains('forecast'), names_to = 'forecast_type',values_to = 'rmse') %>% ungroup()
+
+colors = c(persistence_forecast = 'orange',
+           DL_forecast = 'purple',
+           DL_DA_ar1_forecast = 'darkgreen')
+
+# windows()
 persist = ggplot(filter(accuracy_sum, lead_time >0, forecast_type == 'persistence_forecast'),
                  aes(x = lead_time, y = rmse, group = forecast_type, color = forecast_type))+
   geom_line(size = 2) +
@@ -122,9 +124,10 @@ persist = ggplot(filter(accuracy_sum, lead_time >0, forecast_type == 'persistenc
   xlab('Lead Time (days)') +
   ylab('RMSE (C)') +
   scale_x_continuous(breaks = 1:7)+
-  ylim(range(accuracy_sum$rmse[accuracy_sum$lead_time>0])) +
-  scale_color_manual(name = "Model Type", values = filter(accuracy_sum, lead_time >0, forecast_type == 'persistence_forecast') %>% pull(color),
+  ylim(rev(range(accuracy_sum$rmse[accuracy_sum$lead_time>0]))) +
+  scale_color_manual(name = "Model Type", values = colors,
                       labels = c("Persistence"))
+
 
 persist
 
@@ -140,9 +143,9 @@ dl_persist = ggplot(filter(accuracy_sum, lead_time >0, forecast_type %in% c('DL_
   xlab('Lead Time (days)') +
   ylab('RMSE (C)') +
   scale_x_continuous(breaks = 1:7)+
-  ylim(range(accuracy_sum$rmse[accuracy_sum$lead_time>0])) +
+  ylim(rev(range(accuracy_sum$rmse[accuracy_sum$lead_time>0]))) +
   scale_color_manual(name = "Model Type",
-                     values = filter(accuracy_sum, lead_time >0, forecast_type %in% c('DL_forecast', 'persistence_forecast')) %>% pull(color),
+                     values = colors,
                      labels = c("PGDL", "Persistence"))
 
 dl_persist
@@ -160,10 +163,9 @@ dl_dlda_persist = ggplot(filter(accuracy_sum, lead_time >0, forecast_type %in% c
   xlab('Lead Time (days)') +
   ylab('RMSE (C)') +
   scale_x_continuous(breaks = 1:7)+
-  ylim(range(accuracy_sum$rmse[accuracy_sum$lead_time>0])) +
+  ylim(rev(range(accuracy_sum$rmse[accuracy_sum$lead_time>0]))) +
   scale_color_manual(name = "Model Type",
-                     values = filter(accuracy_sum, lead_time >0,
-                                     forecast_type %in% c('DL_forecast', 'DL_DA_ar1_forecast','persistence_forecast')) %>% pull(color),
+                     values = colors,
                      labels = c("PGDL + DA", "PGDL","Persistence"))
 
 dl_dlda_persist
