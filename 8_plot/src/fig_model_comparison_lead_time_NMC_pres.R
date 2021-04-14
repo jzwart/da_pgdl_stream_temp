@@ -172,6 +172,94 @@ dl_dlda_persist
 
 ggsave('8_plot/out/[1573]_dl_dlda_persistence.png', dl_dlda_persist, width = 7, height = 7, dpi = 300)
 
+
+
+# threshold errors
+
+# out has all the predictions and obs
+
+thres = out %>%
+  mutate(thres = 20,
+         pred_exceed = mean_DL_DA_ar1_forecast > thres,
+         obs_exceed = obs_temp > thres,
+         true_pos = pred_exceed & obs_exceed,
+         false_pos = pred_exceed & !obs_exceed,
+         true_neg = !pred_exceed & !obs_exceed,
+         false_neg = !pred_exceed & obs_exceed)
+
+hss = thres %>% mutate(month = lubridate::month(valid_time, label = T)) %>%
+  group_by(month, lead_time) %>%
+  summarise(n_exceed = sum(obs_exceed, na.rm = T),
+            true_pos = sum(true_pos, na.rm = T),
+            false_pos = sum(false_pos, na.rm = T),
+            true_neg = sum(true_neg, na.rm = T),
+            false_neg = sum(false_neg, na.rm = T)) %>%
+  ungroup() %>%
+  mutate(a = true_pos,
+         b = false_pos,
+         c = false_neg,
+         d = true_neg,
+         HSS = 2 * (a*d - b*c) / ( (a + c)*(c + d) + (a + b)*(b + d))) %>%
+  dplyr::select(-a, -b, -c, -d)
+
+hss_long = hss %>%
+  pivot_longer(cols = c(4,5,7), names_to = 'pred_score', values_to = 'count') %>%
+  group_by(month, pred_score, lead_time) %>%
+  summarise(count = sum(count)) %>%
+  ungroup()
+
+# windows()
+dlda_threshold = ggplot(dplyr::filter(hss_long, lead_time > 0) %>%
+                          group_by(lead_time, pred_score) %>%
+         summarise(count = sum(count)),
+       aes(x = lead_time, y = count, fill = pred_score)) +
+  geom_bar(stat = 'identity', color = 'white', alpha = .8) + #geom_area(stat = 'identity', color = 'white', alpha = .8) +
+  ylab("Count") +
+  scale_x_continuous(breaks = 1:7)+
+  scale_y_continuous(breaks = 0:9) +
+  theme_classic()+
+  xlab('Lead Time (days)') +
+  # facet_wrap(~month) +
+  labs(fill = 'Error Type') +
+  # theme(legend.position = c(.9,.15)) +
+  scale_fill_manual(name = '',
+                    labels = c('False Negative', 'False Positive', 'True Positive'),
+                    values = c('light blue', 'pink', 'grey')) +
+  theme(axis.text = element_text(size = 16),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 16),
+        legend.title = element_text(size = 18))
+
+dlda_threshold
+
+ggsave('8_plot/out/[1573]_dlda_threshold.png', dlda_threshold, width = 9, height = 7, dpi = 300)
+
+
+dlda_threshold_month = ggplot(dplyr::filter(hss_long, month %in% c('May', 'Jun','Jul','Sep'),
+                     lead_time > 0), aes(x = lead_time, y = count, fill = pred_score)) +
+  geom_bar(stat = 'identity', color = 'white', alpha = .8) +
+  ylab("Count") +
+  theme_classic() +
+  xlab('Lead Time (days)') +
+  scale_x_continuous(breaks = 1:7)+
+  facet_wrap(~month) +
+  labs(fill = 'Error Type') +
+  # theme(legend.position = c(.9,.15)) +
+  scale_fill_manual(name = '',
+                    labels = c('False Negative', 'False Positive', 'True Positive'),
+                    values = c('light blue', 'pink', 'grey')) +
+  theme(axis.text = element_text(size = 16),
+        axis.title = element_text(size = 18),
+        legend.text = element_text(size = 16),
+        legend.title = element_text(size = 18),
+        strip.text.x = element_text(size = 16))
+
+dlda_threshold_month
+
+ggsave('8_plot/out/[1573]_dlda_threshold_month.png',
+       dlda_threshold_month, width = 9, height = 7, dpi = 300)
+
+
 # CRPS calculation
 # accuracy_crps = tibble(lead_time = seq(0,f_horizon-1), DA_crps = NA, No_DA_crps = NA)
 # for(i in accuracy_crps$lead_time){
